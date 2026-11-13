@@ -13,7 +13,7 @@ the next push.
 From the `hh.android.app` convention plugin (`build-logic/`):
 
 - Kotlin + Jetpack Compose + Material 3, plus Material 3 adaptive helpers
-- minSdk 29, target/compile SDK 36
+- minSdk 29, target/compile SDK 37
 - Shared debug signing, and release signing from secrets when configured
 - `versionCode` taken from the CI run number, so every CI build can update the last one
 - A `.debug` application ID suffix on debug builds, so debug and release can be installed side by side

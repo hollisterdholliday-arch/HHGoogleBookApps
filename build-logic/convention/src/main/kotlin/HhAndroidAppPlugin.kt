@@ -30,11 +30,11 @@ class HhAndroidAppPlugin : Plugin<Project> {
         val keystoreDir = rootProject.layout.projectDirectory.dir("keystore")
 
         extensions.configure<ApplicationExtension> {
-            compileSdk = 36
+            compileSdk = 37
 
             defaultConfig {
                 minSdk = 29
-                targetSdk = 36
+                targetSdk = 37
                 // Android only installs an update if versionCode goes up.
                 // CI passes its run number; local builds default to 1.
                 versionCode = providers.environmentVariable("HH_VERSION_CODE")
