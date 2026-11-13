@@ -61,7 +61,12 @@ export async function folderSink(dir: FileSystemDirectoryHandle, wanted: string)
     write: (c) => w.write(c),
     close: async (): Promise<SavedFile> => {
       await w.close();
-      return { name, where: dir.name, open: async () => URL.createObjectURL(await fh.getFile()) };
+      return {
+        name,
+        where: dir.name,
+        open: async () => URL.createObjectURL(await fh.getFile()),
+        saveSidecar: (ext, text) => writeText(dir, `${baseName(name)}.${ext}`, text),
+      };
     },
     abort: async () => {
       await w.abort().catch(() => {});
@@ -80,8 +85,37 @@ export function downloadSink(name: string, mime: string): Sink {
       a.href = url;
       a.download = name;
       a.click();
-      return { name, where: 'Downloads', open: async () => url };
+      return {
+        name,
+        where: 'Downloads',
+        open: async () => url,
+        saveSidecar: async (ext, text) => {
+          if (ext === 'json') return; // chapters only matter inside a save folder
+          const a2 = document.createElement('a');
+          a2.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+          a2.download = `${baseName(name)}.${ext}`;
+          a2.click();
+        },
+      };
     },
     abort: async () => void (parts.length = 0),
   };
+}
+
+export const baseName = (file: string) => file.replace(/\.[^.]+$/, '');
+
+export async function writeText(dir: FileSystemDirectoryHandle, name: string, text: string): Promise<void> {
+  const fh = await dir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  await w.write(text);
+  await w.close();
+}
+
+export async function writeBlob(dir: FileSystemDirectoryHandle, wanted: string, blob: Blob): Promise<string> {
+  const name = await uniqueName(dir, wanted);
+  const fh = await dir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  await w.write(blob);
+  await w.close();
+  return name;
 }

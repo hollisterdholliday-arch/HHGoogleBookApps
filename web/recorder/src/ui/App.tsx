@@ -3,6 +3,8 @@ import { SCENES, showsScreen, type Box, type Layout } from '../engine/scenes';
 import { DEFAULT_FX, type BgMode, type BgPreset, type FxSettings } from '../engine/effects';
 import { idbGet, idbSet } from '../lib/idb';
 import { MiniPanel, miniSupported, useMiniWindow } from './MiniWindow';
+import { Library } from './Library';
+import { captionAvailability, installCaptions, type CaptionAvailability } from '../engine/captions';
 import { addFileTool, forgetTool, linkTool, loadTools, saveTools, toolUrl, type Tool } from '../lib/tools';
 import type { SceneText } from '../engine/compositor';
 import type { DeviceLists } from '../engine/studio';
@@ -68,6 +70,9 @@ export function App() {
   const [micMuted, setMicMuted] = useState(false);
   const [tab, setTab] = useState<'text' | 'sources' | 'effects' | 'content'>('text');
   const [tools, setTools] = useState<Tool[]>(loadTools);
+  const [view, setView] = useState<'record' | 'library'>('record');
+  const [captionsOn, setCaptionsOn] = useState<boolean>(() => store.get('captions', false));
+  const [capAvail, setCapAvail] = useState<CaptionAvailability | 'unknown'>('unknown');
   const [activeTool, setActiveTool] = useState<{ tool: Tool; url: string } | null>(null);
   const [linkDraft, setLinkDraft] = useState('');
   const toolHostRef = useRef<HTMLDivElement>(null);
@@ -132,6 +137,33 @@ export function App() {
     store.set('fx', fx);
   }, [studio, fx]);
   useEffect(() => saveTools(tools), [tools]);
+  const captionLang = navigator.language || 'en-US';
+  // Asked only when needed (turning captions on, or recording with them on):
+  // the check is heavy, so it never runs just because the page opened.
+  const checkCaptions = async () => {
+    const a = await captionAvailability(captionLang);
+    setCapAvail(a);
+    studio.captionsOn = captionsOn && a === 'ready';
+    return a;
+  };
+  useEffect(() => {
+    studio.captionsOn = captionsOn && capAvail === 'ready';
+    studio.captionLang = captionLang;
+    store.set('captions', captionsOn);
+  }, [studio, captionsOn, capAvail, captionLang]);
+  const toggleCaptions = async () => {
+    if (captionsOn) return setCaptionsOn(false);
+    const avail = capAvail === 'unknown' ? await checkCaptions() : capAvail;
+    if (avail === 'unavailable') return say({ msg: 'Live captions need a newer Chrome with on-device speech recognition.' });
+    if (avail === 'downloadable') {
+      say({ msg: 'Downloading on-device speech recognition…' }, 4000);
+      const ok = await installCaptions(captionLang);
+      const a = await captionAvailability(captionLang);
+      setCapAvail(a);
+      if (!ok && a !== 'ready') return say({ msg: 'Chrome could not download speech recognition for captions.' });
+    }
+    setCaptionsOn(true);
+  };
   useEffect(() => {
     studio.comp.slides.onChange = () => rerender((n) => n + 1);
     studio.comp.fx.onStatus = () => rerender((n) => n + 1);
@@ -143,11 +175,14 @@ export function App() {
   }, [studio]);
   const mini = useMiniWindow(theme);
 
+  const sceneRef = useRef(scene);
   const setScene = useCallback(
     (id: number) => {
       studio.comp.setScene(id);
       setSceneState(id);
+      sceneRef.current = id;
       store.set('scene', id);
+      studio.markScene(SCENES.find((x) => x.id === id)?.name ?? '');
     },
     [studio],
   );
@@ -233,6 +268,7 @@ export function App() {
 
   const startRecording = async () => {
     studio.audio.resume();
+    if (captionsOn && capAvail === 'unknown') await checkCaptions();
     const name = fileNameFor(text.title, studio.format.ext);
     let sink: Sink | null = null;
     try {
@@ -255,7 +291,7 @@ export function App() {
       window.setTimeout(() => {
         setCount(0);
         try {
-          studio.startRecording(s);
+          studio.startRecording(s, SCENES.find((x) => x.id === sceneRef.current)?.name ?? '');
           setPaused(false);
           setElapsed(0);
           setPhase('recording');
@@ -432,6 +468,13 @@ export function App() {
             <span>{phase === 'countdown' ? 'Starting…' : `${paused ? 'Paused' : 'REC'} ${fmt(elapsed)}`}</span>
           </div>
         )}
+        <div className="view-switch seg" role="tablist" aria-label="View">
+          {(['record', 'library'] as const).map((v) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} className={`seg-btn press ${view === v ? 'active' : ''}`} onClick={() => setView(v)}>
+              {v === 'record' ? 'Recorder' : 'Library'}
+            </button>
+          ))}
+        </div>
         <div className="title-actions">
           <button className="icon-btn press" type="button" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <IconSun /> : <IconMoon />}
@@ -441,7 +484,8 @@ export function App() {
 
       {!supported && <div className="banner">This browser can’t record. Open Recorder in Google Chrome or Microsoft Edge on a computer.</div>}
 
-      <main className="body">
+      {view === 'library' && <Library folder={folder} onChooseFolder={pickFolder} say={(m) => say({ msg: m })} />}
+      <main className="body" hidden={view !== 'record'}>
         <section className="stage-col" aria-label="Preview">
           <div className="stage-wrap">
             <div className="stage" ref={stageRef}>
@@ -770,6 +814,21 @@ export function App() {
                 Change
               </button>
             )}
+          </div>
+          <div className="row">
+            <div className="tile-main">
+              <div className="tile-title">Live captions</div>
+              <div className="note">
+                {capAvail === 'unavailable'
+                  ? 'Needs a newer Chrome with on-device speech recognition.'
+                  : capAvail === 'downloadable'
+                    ? 'Turning on downloads Chrome’s on-device speech model once.'
+                    : 'Written on this computer as you talk, saved next to the video.'}
+              </div>
+            </div>
+            <button className="switch" type="button" role="switch" aria-checked={captionsOn && capAvail !== 'unavailable'} aria-label="Live captions" disabled={capAvail === 'unavailable' || phase !== 'idle'} onClick={toggleCaptions}>
+              <i />
+            </button>
           </div>
         </aside>
       </main>

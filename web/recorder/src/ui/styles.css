@@ -207,6 +207,45 @@ h1, h2, h3 { margin: 0; }
 }
 .toast button { height: 40px; padding: 0 16px; border: 0; border-radius: 20px; background: transparent; color: var(--inverse-primary); font-size: 14px; font-weight: 700; white-space: nowrap; }
 
+/* ---------- view switch + library ---------- */
+.view-switch { width: 220px; flex: none; }
+.body[hidden] { display: none; }
+.lib { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: flex; flex-wrap: wrap; gap: 20px; padding: 4px 20px 20px; overflow: auto; }
+.lib-list { flex: 999 1 480px; min-width: 0; overflow-y: auto; align-self: stretch; }
+.lib-head { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.lib-search { flex: 1 1 220px; height: 44px; padding: 0 18px; border-radius: 22px; border: 1.5px solid var(--outline-var); background: var(--glass-panel); color: var(--on); font-size: 14px; outline: none; }
+.lib-search:focus { border-color: var(--primary); }
+.lib-head .seg { width: 260px; }
+.lib-count { margin: 12px 4px; }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.rec-card { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 0; border-radius: 18px; text-align: left; background: var(--glass-panel); color: var(--on); box-shadow: inset 0 0 0 1px var(--glass-edge); }
+.rec-card.active { border-radius: 26px; background: var(--prim-cont); color: var(--on-prim-cont); box-shadow: inset 0 0 0 2px var(--primary); }
+.rec-thumb { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #1a1a1f; display: grid; place-items: center; }
+.rec-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.rec-dur, .rec-cc { position: absolute; bottom: 8px; padding: 2px 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 12px; font-weight: 700; }
+.rec-dur { right: 8px; font-variant-numeric: tabular-nums; }
+.rec-cc { left: 8px; }
+.rec-title { font-size: 15px; font-weight: 700; line-height: 1.25; word-break: break-word; }
+.lib-detail { flex: 1 1 400px; max-width: 520px; align-self: stretch; max-height: none; }
+.lib-video { width: 100%; aspect-ratio: 16 / 9; border-radius: 18px; background: #000; }
+.chapters { display: flex; gap: 2px; height: 40px; border-radius: 12px; overflow: hidden; }
+.chapter { flex: 1 1 0; min-width: 0; border: 0; padding: 0 8px; background: var(--prim-cont); color: var(--on-prim-cont); font-size: 11px; font-weight: 700; text-align: left; }
+.chapter:nth-child(even) { background: var(--sec-cont); color: var(--on-sec-cont); }
+.chapter span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trim-head { justify-content: space-between; }
+.trim-bar { position: relative; height: 12px; border-radius: 6px; background: var(--primary); overflow: hidden; }
+.trim-bar div { position: absolute; top: 0; bottom: 0; background: var(--btn); }
+.trim-bar i { position: absolute; top: 0; bottom: 0; width: 3px; background: var(--on); }
+.field input[type='range'] { height: auto; padding: 0; border: 0; background: none; accent-color: var(--primary); }
+.cues { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+.cue { display: flex; gap: 10px; border: 0; background: transparent; color: var(--on); text-align: left; font-size: 13px; line-height: 1.4; padding: 4px; border-radius: 8px; }
+.cue:hover { background: var(--btn); }
+.cue b { flex: none; width: 44px; color: var(--primary); font-variant-numeric: tabular-nums; }
+.text-btn.danger { color: var(--danger); display: flex; align-items: center; gap: 6px; }
+.text-btn { display: inline-flex; align-items: center; gap: 6px; }
+.lib-empty { position: relative; z-index: 1; margin: 60px auto; max-width: 440px; padding: 28px; border-radius: 28px; background: var(--glass-panel); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.switch:disabled { opacity: 0.4; cursor: default; }
+
 /* ---------- content: tools and slides ---------- */
 .tool-host {
   position: absolute; left: 2%; top: 3.6%; width: 72%; height: 92.8%; z-index: 2; border-radius: 2cqw; overflow: hidden;

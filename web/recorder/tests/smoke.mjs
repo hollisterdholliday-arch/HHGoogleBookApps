@@ -2,7 +2,7 @@
 // loads the built app, shares a screen, switches scenes, records ~4 s and
 // checks that a real video file comes out.
 //   npm run build && npm test
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -57,10 +57,14 @@ try {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  // Use the download fallback (the real folder picker needs a person).
+  page.on('console', (m) => ['warning', 'error'].includes(m.type()) && console.log(`  [browser ${m.type()}] ${m.text().slice(0, 300)}`));
+  // The real folder picker needs a person: hand the app the browser's
+  // private test folder (OPFS) instead, which behaves like a real folder.
   await page.addInitScript(() => {
-    delete window.showDirectoryPicker;
-    window.showDirectoryPicker = undefined;
+    window.showDirectoryPicker = () => navigator.storage.getDirectory();
+    // Headless Chromium crashes when asked about speech recognition.
+    delete window.SpeechRecognition;
+    delete window.webkitSpeechRecognition;
   });
   await page.goto(`http://localhost:${PORT}/`);
   await page.waitForSelector('.stage canvas');
@@ -156,42 +160,92 @@ try {
   await page.screenshot({ path: `${OUT}/tool.png` });
   await page.keyboard.press('2');
 
-  const dl = page.waitForEvent('download', { timeout: 30000 });
   await page.click('button[aria-label="Start recording"]');
-  await page.waitForTimeout(3200);
+  await page.waitForTimeout(4500);
   check(await page.isVisible('.rec-chip'), 'REC chip shows while recording');
   await page.keyboard.press('5');
   await page.waitForTimeout(1500);
-  await page.keyboard.press('2');
+  await page.keyboard.press('3');
   await page.waitForTimeout(1500);
   await page.click('button[aria-label="Stop recording"]');
-  const download = await dl;
-  const path = `${OUT}/${download.suggestedFilename()}`;
-  await download.saveAs(path);
-  const buf = readFileSync(path);
-  const isMp4 = buf.subarray(4, 8).toString('latin1') === 'ftyp';
-  const isWebm = buf[0] === 0x1a && buf[1] === 0x45;
-  check(buf.length > 50_000, `recording has data (${buf.length} bytes, ${download.suggestedFilename()})`);
-  check(isMp4 || isWebm, `recording is a real ${isMp4 ? 'MP4' : isWebm ? 'WebM' : 'unknown'} file`);
-  await page.waitForTimeout(300);
+  await page.waitForSelector('.toast >> text=Saved', { timeout: 20000 });
   await page.screenshot({ path: `${OUT}/saved.png` });
 
-  // Probe the file with the browser itself: duration and dimensions.
-  const meta = await page.evaluate(async (b64) => {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes]));
+  // Inspect what landed in the folder.
+  const saved = await page.evaluate(async () => {
+    const dir = await navigator.storage.getDirectory();
+    const files = {};
+    for await (const [n, h] of dir.entries()) files[n] = h;
+    const mp4 = Object.keys(files).find((n) => n.endsWith('.mp4'));
+    const json = Object.keys(files).find((n) => n.endsWith('.json'));
+    const f = await files[mp4].getFile();
+    const head = new Uint8Array(await f.slice(0, 12).arrayBuffer());
     const v = document.createElement('video');
     v.muted = true;
-    v.src = url;
-    await new Promise((r, j) => ((v.onloadedmetadata = r), (v.onerror = () => j(v.error?.message))));
-    if (!isFinite(v.duration)) {
-      v.currentTime = 1e9;
-      await new Promise((r) => (v.ontimeupdate = r));
+    v.src = URL.createObjectURL(f);
+    await new Promise((r, j) => ((v.onloadedmetadata = r), (v.onerror = j)));
+    return {
+      names: Object.keys(files),
+      size: f.size,
+      ftyp: String.fromCharCode(...head.slice(4, 8)),
+      w: v.videoWidth,
+      h: v.videoHeight,
+      d: v.duration,
+      meta: json ? JSON.parse(await (await files[json].getFile()).text()) : null,
+    };
+  });
+  check(saved.size > 50_000, `recording saved into the folder (${saved.size} bytes)`);
+  check(saved.ftyp === 'ftyp', 'recording is a real MP4 file');
+  check(saved.w === 1920 && saved.h === 1080, `video is ${saved.w}x${saved.h}`);
+  check(saved.d > 3, `video is ${saved.d.toFixed(1)} s long`);
+  const chapterNames = saved.meta?.chapters?.map((c) => c.scene).join(', ');
+  check(chapterNames === 'Lesson, Screen only, Side by side', `chapters saved (${chapterNames})`);
+
+  // Library: lists it, plays it, saves a trimmed copy.
+  await page.click('role=tab[name="Library"]');
+  await page.waitForSelector('.rec-card', { timeout: 15000 });
+  await page.click('.rec-card');
+  await page.waitForFunction(() => document.querySelector('.lib-video')?.readyState >= 1, null, { timeout: 15000 });
+  await page.waitForSelector('.chapter', { timeout: 10000 }).catch(() => {});
+  check((await page.$$('.chapter')).length === 3, 'Library shows chapters from scene switches');
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: `${OUT}/library.png` });
+  await page.$eval('.lib-detail input[type=range]', (el) => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    set.call(el, '2.5');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.click('text=Save trimmed copy');
+  await page.waitForSelector('.toast >> text=(trimmed)', { timeout: 30000 });
+  if (process.env.DUMP) {
+    const files = await page.evaluate(async () => {
+      const dir = await navigator.storage.getDirectory();
+      const out = {};
+      for await (const [n, h] of dir.entries()) {
+        const b = new Uint8Array(await (await h.getFile()).arrayBuffer());
+        let s = '';
+        for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768));
+        out[n] = btoa(s);
+      }
+      return out;
+    });
+    const { writeFileSync } = await import('node:fs');
+    for (const [n, b64] of Object.entries(files)) writeFileSync(`${OUT}/${n.includes('trimmed') ? 'trimmed' : 'original'}${n.slice(n.lastIndexOf('.'))}`, Buffer.from(b64, 'base64'));
+  }
+  const trimmed = await page.evaluate(async () => {
+    const dir = await navigator.storage.getDirectory();
+    for await (const [n, h] of dir.entries()) {
+      if (!n.includes('(trimmed)') || !n.endsWith('.mp4')) continue;
+      const v = document.createElement('video');
+      v.muted = true;
+      v.src = URL.createObjectURL(await h.getFile());
+      await new Promise((r, j) => ((v.onloadedmetadata = r), (v.onerror = () => j(v.error?.message))));
+      return { d: v.duration, w: v.videoWidth };
     }
-    return { w: v.videoWidth, h: v.videoHeight, d: v.duration };
-  }, buf.toString('base64'));
-  check(meta.w === 1920 && meta.h === 1080, `video is ${meta.w}x${meta.h}`);
-  check(meta.d > 3, `video is ${meta.d.toFixed(1)} s long`);
+    return null;
+  });
+  check(!!trimmed && trimmed.w === 1920 && trimmed.d > 1 && trimmed.d < saved.d, `trimmed copy plays (${trimmed?.d?.toFixed(1)} s of ${saved.d.toFixed(1)} s)`);
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 } finally {
   await browser.close();
