@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HH Apps</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400..900&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#121318; --on:#e3e1e9; --var:#c6c5d0; --card:#1e1f25; --primary:#bac3ff; color-scheme: dark; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f3f2fa; --on:#1b1b21; --var:#46464f; --card:#ffffff; --primary:#4a55a8; color-scheme: light; } }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--on); font-family:'Roboto Flex',system-ui,sans-serif; display:grid; place-items:center; padding:16px; box-sizing:border-box; }
+  main { width:100%; max-width:640px; }
+  h1 { font-size:40px; font-weight:850; letter-spacing:-1px; margin:0 0 20px; }
+  a.card { display:flex; gap:16px; align-items:center; padding:20px; border-radius:28px; background:var(--card); color:inherit; text-decoration:none; }
+  a.card:hover { outline:2px solid var(--primary); }
+  img { width:64px; height:64px; border-radius:18px; }
+  b { font-size:20px; } p { margin:4px 0 0; color:var(--var); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Apps</h1>
+  <a class="card" href="recorder/">
+    <img src="recorder/icon.svg" alt="">
+    <div><b>Recorder</b><p>Lesson videos with your screen, camera and live scene switching. Open in Chrome or Edge, then click Install.</p></div>
+  </a>
+</main>
+</body>
+</html>
