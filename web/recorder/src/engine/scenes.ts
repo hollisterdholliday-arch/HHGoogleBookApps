@@ -21,6 +21,10 @@ export type CardKind = 'problem' | 'brb' | 'outro';
 
 export interface Layout {
   screen: Box;
+  /** Second shared screen or window. */
+  screen2: Box;
+  /** A teaching tool (HTML file or link) running inside the recorder. */
+  tool: Box;
   camera: Box;
   card: CardKind | null;
   title: boolean;
@@ -38,9 +42,11 @@ const off = (b: Box): Box => ({ ...b, o: 0 });
 // A circle on a 16:9 stage: height fraction = width fraction * 16/9.
 const bubble = (x: number, y: number, w: number): Box => ({ x, y, w, h: (w * 16) / 9, r: 0, circle: true, o: 1, ring: true });
 const BUBBLE = bubble(0.78, 0.62, 0.185);
+const LEFT_HALF: Box = { x: 0.015, y: 0.2, w: 0.48, h: 0.48, r: 0.016, o: 1 };
+const RIGHT_HALF: Box = { x: 0.505, y: 0.2, w: 0.48, h: 0.48, r: 0.016, o: 1 };
 
 function layout(p: Partial<Layout>): Layout {
-  return { screen: off(FULL), camera: off(BUBBLE), card: null, title: false, lower: false, ...p };
+  return { screen: off(FULL), screen2: off(RIGHT_HALF), tool: off(FULL), camera: off(BUBBLE), card: null, title: false, lower: false, ...p };
 }
 
 export const SCENES: SceneDef[] = [
@@ -61,9 +67,22 @@ export const SCENES: SceneDef[] = [
     name: 'Presenter',
     layout: layout({ screen: FULL, camera: { x: 0.6, y: 0.16, w: 0.42, h: 0.84, r: 0, o: 1, cutout: true }, lower: true }),
   },
-  { id: 7, name: 'Try this', layout: layout({ card: 'problem', camera: bubble(0.8, 0.64, 0.16) }) },
-  { id: 8, name: 'Be right back', layout: layout({ card: 'brb' }) },
-  { id: 9, name: 'Outro', layout: layout({ card: 'outro', camera: { ...bubble(0.08, 0.22, 0.31), ring: false } }) },
+  {
+    id: 7,
+    name: 'Tool + me',
+    layout: layout({
+      tool: { x: 0.02, y: 0.036, w: 0.72, h: 0.928, r: 0.02, o: 1 },
+      camera: { x: 0.76, y: 0.036, w: 0.22, h: 0.39, r: 0.02, o: 1 },
+    }),
+  },
+  {
+    id: 8,
+    name: 'Two screens',
+    layout: layout({ screen: LEFT_HALF, screen2: RIGHT_HALF, camera: bubble(0.445, 0.75, 0.11) }),
+  },
+  { id: 9, name: 'Try this', layout: layout({ card: 'problem', camera: bubble(0.8, 0.64, 0.16) }) },
+  { id: 10, name: 'Be right back', layout: layout({ card: 'brb' }) },
+  { id: 11, name: 'Outro', layout: layout({ card: 'outro', camera: { ...bubble(0.08, 0.22, 0.31), ring: false } }) },
 ];
 
 export const sceneById = (id: number): SceneDef => SCENES.find((s) => s.id === id) ?? SCENES[1];

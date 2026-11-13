@@ -49,8 +49,9 @@ export function MiniPanel(props: {
   count: number;
   onRecord: () => void;
   onPause: () => void;
+  slides: { page: number; pages: number; next: () => void; prev: () => void } | null;
 }) {
-  const { win, scene, setScene, phase, paused, elapsed, count, onRecord, onPause } = props;
+  const { win, scene, setScene, phase, paused, elapsed, count, onRecord, onPause, slides } = props;
   const live = phase === 'recording';
   const current = SCENES.find((s) => s.id === scene);
   const status = phase === 'countdown' ? `Starting in ${count}…` : live ? `${paused ? 'Paused' : 'Recording'} · ${elapsed}` : 'Not recording';
@@ -72,6 +73,19 @@ export function MiniPanel(props: {
         {live && !paused && <i aria-hidden="true" />}
         {status}
       </div>
+      {slides && (
+        <div className="mini-slides">
+          <button type="button" className="round-btn press" aria-label="Previous slide" onClick={slides.prev}>
+            ‹
+          </button>
+          <b>
+            Slide {slides.page} / {slides.pages}
+          </b>
+          <button type="button" className="round-btn press primary" aria-label="Next slide" onClick={slides.next}>
+            ›
+          </button>
+        </div>
+      )}
       <div className="mini-grid">
         {SCENES.map((s) => (
           <button key={s.id} type="button" className={`mini-scene press ${s.id === scene ? 'active' : ''}`} aria-pressed={s.id === scene} onClick={() => setScene(s.id)} title={s.name}>

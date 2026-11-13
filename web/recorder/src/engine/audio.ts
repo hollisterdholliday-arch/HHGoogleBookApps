@@ -9,6 +9,7 @@ export class AudioMixer {
   private micGain = this.ctx.createGain();
   private sysNode: MediaStreamAudioSourceNode | null = null;
   private sysGain = this.ctx.createGain();
+  private extra = new Map<string, MediaStreamAudioSourceNode>();
   private buf = new Float32Array(1024);
   micStream: MediaStream | null = null;
 
@@ -49,6 +50,17 @@ export class AudioMixer {
     if (stream && stream.getAudioTracks().length) {
       this.sysNode = this.ctx.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
       this.sysNode.connect(this.sysGain);
+    }
+  }
+
+  /** Extra sound sources (second screen, teaching tool), by name. */
+  setExtra(name: string, stream: MediaStream | null): void {
+    this.extra.get(name)?.disconnect();
+    this.extra.delete(name);
+    if (stream && stream.getAudioTracks().length) {
+      const n = this.ctx.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
+      n.connect(this.sysGain);
+      this.extra.set(name, n);
     }
   }
 

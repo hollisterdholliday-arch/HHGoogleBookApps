@@ -3,6 +3,7 @@ import { SCENES, showsScreen, type Box, type Layout } from '../engine/scenes';
 import { DEFAULT_FX, type BgMode, type BgPreset, type FxSettings } from '../engine/effects';
 import { idbGet, idbSet } from '../lib/idb';
 import { MiniPanel, miniSupported, useMiniWindow } from './MiniWindow';
+import { addFileTool, forgetTool, linkTool, loadTools, saveTools, toolUrl, type Tool } from '../lib/tools';
 import type { SceneText } from '../engine/compositor';
 import type { DeviceLists } from '../engine/studio';
 import { Studio } from '../engine/studio';
@@ -65,7 +66,11 @@ export function App() {
   const [text, setText] = useState<SceneText>(() => ({ ...DEFAULT_TEXT, ...store.get('text', {}) }));
   const [mirror, setMirror] = useState<boolean>(() => store.get('mirror', false));
   const [micMuted, setMicMuted] = useState(false);
-  const [tab, setTab] = useState<'text' | 'sources' | 'effects'>('text');
+  const [tab, setTab] = useState<'text' | 'sources' | 'effects' | 'content'>('text');
+  const [tools, setTools] = useState<Tool[]>(loadTools);
+  const [activeTool, setActiveTool] = useState<{ tool: Tool; url: string } | null>(null);
+  const [linkDraft, setLinkDraft] = useState('');
+  const toolHostRef = useRef<HTMLDivElement>(null);
   const [fx, setFx] = useState<FxSettings>(() => ({ ...DEFAULT_FX, ...store.get('fx', {}) }));
   const [hasBgImage, setHasBgImage] = useState(false);
   const [devices, setDevices] = useState<DeviceLists>({ cameras: [], mics: [] });
@@ -126,7 +131,9 @@ export function App() {
     studio.comp.fx.settings = fx;
     store.set('fx', fx);
   }, [studio, fx]);
+  useEffect(() => saveTools(tools), [tools]);
   useEffect(() => {
+    studio.comp.slides.onChange = () => rerender((n) => n + 1);
     studio.comp.fx.onStatus = () => rerender((n) => n + 1);
     idbGet<Blob>('bgImage').then(async (b) => {
       if (!b) return;
@@ -292,6 +299,75 @@ export function App() {
     setPaused(r.paused);
   };
 
+  // ---- content: slides and teaching tools ----
+  const slides = studio.comp.slides;
+  const onPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      await slides.open(f);
+      if (!showsScreen(scene) || scene === 8) setScene(2);
+      say({ msg: `Showing “${f.name}”. Use ← → or the buttons to change slides.` }, 4000);
+    } catch {
+      say({ msg: 'That PDF could not be opened.' });
+    }
+  };
+
+  const openTool = async (t: Tool) => {
+    const url = await toolUrl(t);
+    if (!url) return say({ msg: 'That file is no longer available. Add it again.' });
+    if (activeTool?.tool.kind === 'file') URL.revokeObjectURL(activeTool.url);
+    setActiveTool({ tool: t, url });
+    setScene(7);
+    if (!studio.comp.tool.active) {
+      // Wait for the tool panel to be on screen, then ask Chrome to record it.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      void captureTool();
+    }
+  };
+  const captureTool = async () => {
+    const host = toolHostRef.current;
+    if (!host) return;
+    try {
+      await studio.captureElement(host);
+    } catch (e) {
+      if (e instanceof Error && e.message === 'not-this-tab') say({ msg: 'When Chrome asks what to share, choose “This tab”. Then click “Show this tool in the recording”.' }, 9000);
+      else if (errText(e) !== 'blocked') say({ msg: 'Chrome could not record the tool. Try Share screen and pick its tab instead.' });
+    }
+  };
+  const closeTool = () => {
+    if (activeTool?.tool.kind === 'file') URL.revokeObjectURL(activeTool.url);
+    setActiveTool(null);
+    studio.stopToolCapture();
+  };
+  const onToolFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = [...(e.target.files ?? [])];
+    e.target.value = '';
+    const added = await Promise.all(files.map(addFileTool));
+    if (added.length) {
+      setTools((l) => [...l, ...added]);
+      void openTool(added[added.length - 1]);
+    }
+  };
+  const addLink = () => {
+    const v = linkDraft.trim();
+    if (!v) return;
+    try {
+      const t = linkTool(v);
+      setTools((l) => [...l, t]);
+      setLinkDraft('');
+      void openTool(t);
+    } catch {
+      say({ msg: 'That does not look like a web address.' });
+    }
+  };
+  const removeTool = (t: Tool) => {
+    if (activeTool?.tool.id === t.id) closeTool();
+    setTools((l) => l.filter((x) => x.id !== t.id));
+    void forgetTool(t);
+  };
+
   const onBgImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -305,8 +381,8 @@ export function App() {
   };
 
   // Keyboard: 1–9 or Ctrl+1–9 switch scenes; Ctrl+Shift+Enter records; Ctrl+Shift+Space pauses.
-  const keys = useRef({ toggleRecord, togglePause, setScene });
-  keys.current = { toggleRecord, togglePause, setScene };
+  const keys = useRef({ toggleRecord, togglePause, setScene, slides });
+  keys.current = { toggleRecord, togglePause, setScene, slides };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
@@ -317,6 +393,9 @@ export function App() {
       } else if (mod && e.shiftKey && e.code === 'Space') {
         e.preventDefault();
         keys.current.togglePause();
+      } else if (!typing && keys.current.slides.active && ['ArrowRight', 'ArrowLeft', 'PageDown', 'PageUp'].includes(e.key)) {
+        e.preventDefault();
+        void (e.key === 'ArrowRight' || e.key === 'PageDown' ? keys.current.slides.next() : keys.current.slides.prev());
       } else if (/^[1-9]$/.test(e.key) && (mod || (!typing && !e.altKey))) {
         const id = Number(e.key);
         if (SCENES.some((s) => s.id === id)) {
@@ -366,6 +445,22 @@ export function App() {
         <section className="stage-col" aria-label="Preview">
           <div className="stage-wrap">
             <div className="stage" ref={stageRef}>
+              {activeTool && (
+                // Stays mounted (under the preview) in other scenes so Chrome keeps recording it.
+                <div className={`tool-host ${scene === 7 ? '' : 'behind'}`} ref={toolHostRef} aria-hidden={scene !== 7}>
+                  <iframe
+                    title={activeTool.tool.name}
+                    src={activeTool.url}
+                    sandbox={activeTool.tool.kind === 'file' ? 'allow-scripts allow-forms allow-modals allow-popups allow-downloads' : 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads'}
+                    allow="autoplay; fullscreen; clipboard-write"
+                  />
+                  {!studio.comp.tool.active && (
+                    <button type="button" className="tool-capture press" onClick={captureTool}>
+                      Show this tool in the recording
+                    </button>
+                  )}
+                </div>
+              )}
               {phase === 'countdown' && count > 0 && (
                 <div className="countdown" aria-live="assertive">
                   <span key={count}>{count}</span>
@@ -409,7 +504,7 @@ export function App() {
           <nav className="scenes" aria-label="Scenes">
             <div className="scenes-head">
               <h2>Scenes</h2>
-              <span className="hint">Click or press 1–{SCENES.length}, even while recording</span>
+              <span className="hint">Click, or press 1–9 (scenes 10+ in the mini window), even while recording</span>
             </div>
             <div className="strip scroll">
               {SCENES.map((s) => (
@@ -417,7 +512,7 @@ export function App() {
                   <Thumb layout={s.layout} />
                   <div className="scene-meta">
                     <span>{s.name}</span>
-                    <span className="key">{s.id}</span>
+                    {s.id <= 9 && <span className="key">{s.id}</span>}
                   </div>
                 </button>
               ))}
@@ -427,9 +522,9 @@ export function App() {
 
         <aside className="panel scroll" aria-label="Settings">
           <div className="tabs" role="tablist">
-            {(['text', 'sources', 'effects'] as const).map((t) => (
+            {(['text', 'sources', 'effects', 'content'] as const).map((t) => (
               <button key={t} role="tab" type="button" aria-selected={tab === t} className={`tab press ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-                {{ text: 'Text', sources: 'Sources', effects: 'Effects' }[t]}
+                {{ text: 'Text', sources: 'Sources', effects: 'Effects', content: 'Content' }[t]}
               </button>
             ))}
           </div>
@@ -514,6 +609,23 @@ export function App() {
                 </select>
               </label>
               <div className="note">To record sound from a video or app, tick “Share audio” in Chrome’s share picker.</div>
+              <div className="tile">
+                <div className="tile-main">
+                  <div className="tile-title">Second screen</div>
+                  <div className="tile-note">{studio.comp.screen2.active ? 'Shared · used in Two screens' : 'For the Two screens scene'}</div>
+                </div>
+                <button className="text-btn press" type="button" onClick={async () => {
+                  if (studio.comp.screen2.active) return studio.stopSecond();
+                  try {
+                    await studio.shareSecond();
+                    setScene(8);
+                  } catch {
+                    /* picker closed */
+                  }
+                }}>
+                  {studio.comp.screen2.active ? 'Stop' : 'Share'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -574,6 +686,76 @@ export function App() {
             </div>
           )}
 
+          {tab === 'content' && (
+            <div className="section">
+              <h2 className="h-section">Slides</h2>
+              <div className="note">Upload a PDF, or PowerPoint, Google Slides or Keynote saved as PDF. It takes the place of the screen share in your scenes.</div>
+              <label className="upload-btn press tonal">
+                Upload slides (PDF)
+                <input type="file" accept=".pdf,application/pdf" onChange={onPdf} />
+              </label>
+              {slides.active && (
+                <>
+                  <div className="tile selected">
+                    <div className="pdf-badge" aria-hidden="true">PDF</div>
+                    <div className="tile-main">
+                      <div className="tile-title">{slides.name}</div>
+                      <div className="tile-note">
+                        Slide {slides.page} of {slides.pages}
+                      </div>
+                    </div>
+                    <button className="round-btn press" type="button" aria-label="Previous slide" onClick={slides.prev} disabled={slides.page <= 1}>
+                      ‹
+                    </button>
+                    <button className="round-btn press primary" type="button" aria-label="Next slide" onClick={slides.next} disabled={slides.page >= slides.pages}>
+                      ›
+                    </button>
+                  </div>
+                  <button className="text-btn press" type="button" onClick={() => slides.close()}>
+                    Go back to screen share
+                  </button>
+                </>
+              )}
+              <div className="divider" />
+              <h2 className="h-section">Teaching tools</h2>
+              <div className="note">Add HTML files from your computer or paste a link. They run inside the recorder in the Tool + me scene, and you can click and type in them while you record.</div>
+              <label className="upload-btn press">
+                Upload HTML files
+                <input type="file" accept=".html,.htm,text/html" multiple onChange={onToolFiles} />
+              </label>
+              {tools.length === 0 && <div className="empty">No tools yet. Upload an HTML file or add a link below.</div>}
+              {tools.map((t) => (
+                <div key={t.id} className={`tile ${activeTool?.tool.id === t.id ? 'selected' : ''}`}>
+                  <button type="button" className="tile-btn" onClick={() => openTool(t)}>
+                    <div className="tool-badge" aria-hidden="true">{t.name[0]}</div>
+                    <div className="tile-main">
+                      <div className="tile-title">{t.name}</div>
+                      <div className="tile-note">{t.kind === 'file' ? `${t.src} · on this computer` : t.src.replace(/^https?:\/\//, '')}</div>
+                    </div>
+                  </button>
+                  <button className="icon-btn press" type="button" aria-label={`Remove ${t.name}`} onClick={() => removeTool(t)}>
+                    <IconClose />
+                  </button>
+                </div>
+              ))}
+              <label className="field">
+                Add a tool by link
+                <div className="row">
+                  <input type="url" placeholder="https://…" value={linkDraft} onChange={(e) => setLinkDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLink()} />
+                  <button className="small-btn press" type="button" onClick={addLink}>
+                    Add
+                  </button>
+                </div>
+              </label>
+              {activeTool && (
+                <button className="text-btn press" type="button" onClick={closeTool}>
+                  Close “{activeTool.tool.name}”
+                </button>
+              )}
+              <div className="note">Some websites refuse to run inside other apps. If one stays blank, share its tab with Share screen instead.</div>
+            </div>
+          )}
+
           <div className="divider" />
           <div className="row">
             <div className="chip-icon" aria-hidden="true">
@@ -603,6 +785,7 @@ export function App() {
           count={count}
           onRecord={toggleRecord}
           onPause={togglePause}
+          slides={slides.active ? { page: slides.page, pages: slides.pages, next: slides.next, prev: slides.prev } : null}
         />
       )}
 
@@ -640,6 +823,8 @@ function Thumb({ layout }: { layout: Layout }) {
   return (
     <div className="thumb" aria-hidden="true">
       <div style={boxStyle(layout.screen, { background: '#eef0fb' })} />
+      <div style={boxStyle(layout.screen2, { background: '#ffffff' })} />
+      <div style={boxStyle(layout.tool, { background: '#e3f4ea' })} />
       {layout.card && <div style={{ inset: 0, background: CARD_BG[layout.card] }} />}
       <div style={boxStyle(layout.camera, { background: 'linear-gradient(165deg,#6b5546,#2f2622)', boxShadow: layout.camera.ring ? '0 0 0 2px #fff' : 'none' })} />
       {layout.title && <div style={{ left: '8%', bottom: '14%', width: '50%', height: '10%', borderRadius: 3, background: 'rgba(255,255,255,.9)' }} />}

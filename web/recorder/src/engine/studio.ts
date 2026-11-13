@@ -57,6 +57,70 @@ export class Studio {
     this.onChange();
   }
 
+  /** A second shared window, for the Two screens scene. */
+  async shareSecond(): Promise<void> {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 30 } },
+      audio: true,
+      selfBrowserSurface: 'exclude',
+    } as DisplayMediaStreamOptions);
+    this.comp.screen2.start(stream);
+    this.audio.setExtra('screen2', stream);
+    this.comp.screen2.onEnded = () => {
+      this.audio.setExtra('screen2', null);
+      this.onChange();
+    };
+    this.onChange();
+  }
+
+  stopSecond(): void {
+    this.comp.screen2.stop();
+    this.audio.setExtra('screen2', null);
+    this.onChange();
+  }
+
+  /**
+   * Record one element of this page (the teaching tool) with Chrome's
+   * Element Capture, falling back to Region Capture on older Chrome.
+   */
+  async captureElement(el: HTMLElement): Promise<void> {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 30 } },
+      audio: true,
+      preferCurrentTab: true,
+      selfBrowserSurface: 'include',
+      surfaceSwitching: 'exclude',
+    } as DisplayMediaStreamOptions);
+    const track = stream.getVideoTracks()[0] as MediaStreamTrack & {
+      restrictTo?: (t: unknown) => Promise<void>;
+      cropTo?: (t: unknown) => Promise<void>;
+    };
+    const w = window as unknown as {
+      RestrictionTarget?: { fromElement(e: Element): Promise<unknown> };
+      CropTarget?: { fromElement(e: Element): Promise<unknown> };
+    };
+    if (w.RestrictionTarget && track.restrictTo) await track.restrictTo(await w.RestrictionTarget.fromElement(el));
+    else if (w.CropTarget && track.cropTo) await track.cropTo(await w.CropTarget.fromElement(el));
+    else {
+      // Something other than this tab was picked: don't record the wrong thing.
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error('not-this-tab');
+    }
+    this.comp.tool.start(stream);
+    this.audio.setExtra('tool', stream);
+    this.comp.tool.onEnded = () => {
+      this.audio.setExtra('tool', null);
+      this.onChange();
+    };
+    this.onChange();
+  }
+
+  stopToolCapture(): void {
+    this.comp.tool.stop();
+    this.audio.setExtra('tool', null);
+    this.onChange();
+  }
+
   stopShare(): void {
     this.comp.screen.stop();
     this.audio.setSystem(null);

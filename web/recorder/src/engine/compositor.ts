@@ -4,6 +4,7 @@
 
 import { sceneById, type Box, type CardKind, type Layout } from './scenes';
 import { CameraFx, type Crop } from './effects';
+import { Slides } from './slides';
 import { VideoSource, type Drawable } from './sources';
 
 export const W = 1920;
@@ -33,6 +34,8 @@ interface PxBox {
 }
 interface State {
   screen: PxBox;
+  screen2: PxBox;
+  tool: PxBox;
   camera: PxBox;
   cards: Record<CardKind, number>;
   title: number;
@@ -46,6 +49,8 @@ const toPx = (b: Box): PxBox => {
 };
 const toState = (l: Layout): State => ({
   screen: toPx(l.screen),
+  screen2: toPx(l.screen2),
+  tool: toPx(l.tool),
   camera: toPx(l.camera),
   cards: { problem: l.card === 'problem' ? 1 : 0, brb: l.card === 'brb' ? 1 : 0, outro: l.card === 'outro' ? 1 : 0 },
   title: l.title ? 1 : 0,
@@ -82,6 +87,9 @@ export class Compositor {
   private ctx: CanvasRenderingContext2D;
   private scratch = document.createElement('canvas');
   readonly screen = new VideoSource();
+  readonly screen2 = new VideoSource();
+  readonly tool = new VideoSource();
+  readonly slides = new Slides();
   readonly camera = new VideoSource();
   readonly fx = new CameraFx();
   text: SceneText = { title: '', name: '', role: '', problem: '', outro: '', brb: '' };
@@ -149,6 +157,8 @@ export class Compositor {
     const b = this.to;
     return {
       screen: lerpBox(a.screen, b.screen, g, f),
+      screen2: lerpBox(a.screen2, b.screen2, g, f),
+      tool: lerpBox(a.tool, b.tool, g, f),
       camera: lerpBox(a.camera, b.camera, g, f),
       cards: {
         problem: lerp(a.cards.problem, b.cards.problem, f),
@@ -168,6 +178,8 @@ export class Compositor {
     ctx.fillRect(0, 0, W, H);
 
     if (s.screen.o > 0.01) this.drawBox(s.screen, (b) => this.drawScreen(b));
+    if (s.screen2.o > 0.01) this.drawBox(s.screen2, (b) => this.drawSource(b, this.screen2.current(), 'Share a second window', 'Use Sources › Second screen'));
+    if (s.tool.o > 0.01) this.drawBox(s.tool, (b) => this.drawSource(b, this.tool.current(), 'Open a teaching tool', 'Content › Teaching tools'));
     (['problem', 'brb', 'outro'] as CardKind[]).forEach((k) => {
       if (s.cards[k] > 0.01) this.drawCard(k, s.cards[k], now);
     });
@@ -228,9 +240,14 @@ export class Compositor {
   }
 
   private drawScreen(b: PxBox): void {
+    const sl = this.slides;
+    const f = sl.active ? { img: sl.canvas, w: sl.canvas.width, h: sl.canvas.height } : this.screen.current();
+    this.drawSource(b, f, 'Share your screen', 'Pick a tab, a window or your whole screen');
+  }
+
+  private drawSource(b: PxBox, f: { img: CanvasImageSource; w: number; h: number } | null, title: string, hint: string): void {
     const ctx = this.ctx;
-    const f = this.screen.current();
-    if (f) {
+    if (f && f.w) {
       ctx.fillStyle = '#0b0b0e';
       ctx.fillRect(b.x, b.y, b.w, b.h);
       const r = fit(f.w, f.h, b, 'contain');
@@ -247,10 +264,10 @@ export class Compositor {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `800 ${Math.round(72 * k)}px ${FONT}`;
-    ctx.fillText('Share your screen', b.x + b.w / 2, b.y + b.h / 2 - 34 * k);
+    ctx.fillText(title, b.x + b.w / 2, b.y + b.h / 2 - 34 * k);
     ctx.fillStyle = 'rgba(222,224,255,0.75)';
     ctx.font = `500 ${Math.round(34 * k)}px ${FONT}`;
-    ctx.fillText('Pick a tab, a window or your whole screen', b.x + b.w / 2, b.y + b.h / 2 + 44 * k);
+    ctx.fillText(hint, b.x + b.w / 2, b.y + b.h / 2 + 44 * k);
   }
 
   /** Camera image (with effects), cropped to cover box `b`. */

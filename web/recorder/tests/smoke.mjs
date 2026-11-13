@@ -14,6 +14,29 @@ const PORT = 4318;
 const { preview } = await import('vite');
 const server = await preview({ preview: { port: PORT, strictPort: true }, logLevel: 'silent' });
 
+// A tiny valid PDF with one line of text per page.
+function makePdf(lines) {
+  const objs = [];
+  const kids = lines.map((_, i) => `${3 + i * 2} 0 R`).join(' ');
+  objs.push('<< /Type /Catalog /Pages 2 0 R >>');
+  objs.push(`<< /Type /Pages /Kids [${kids}] /Count ${lines.length} >>`);
+  lines.forEach((t, i) => {
+    const content = `BT /F1 64 Tf 80 300 Td (${t}) Tj ET`;
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 960 540] /Contents ${4 + i * 2} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>`);
+    objs.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
+  let out = '%PDF-1.4\n';
+  const offs = [];
+  objs.forEach((o, i) => {
+    offs.push(out.length);
+    out += `${i + 1} 0 obj\n${o}\nendobj\n`;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('');
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(out, 'latin1');
+}
+
 let failed = false;
 const check = (ok, msg) => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`);
@@ -104,6 +127,33 @@ try {
   await page.waitForTimeout(900);
   await page.screenshot({ path: `${OUT}/blur.png` });
   await page.click('role=radio[name="Off"]');
+  await page.keyboard.press('2');
+
+  // Content: a PDF slide deck replaces the screen share.
+  const pdf = makePdf(['Slide one', 'Slide two']);
+  await page.click('role=tab[name="Content"]');
+  await page.setInputFiles('input[accept=".pdf,application/pdf"]', { name: 'lesson.pdf', mimeType: 'application/pdf', buffer: pdf });
+  await page.waitForSelector('text=Slide 1 of 2', { timeout: 20000 });
+  await page.keyboard.press('ArrowRight');
+  await page.waitForSelector('text=Slide 2 of 2', { timeout: 10000 });
+  check(true, 'PDF slides open and advance with the arrow keys');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/slides.png` });
+  await page.click('text=Go back to screen share');
+
+  // Content: an HTML tool runs inside the recorder and is captured.
+  const tool = '<!doctype html><body style="margin:0;background:#1db954;font:bold 80px sans-serif;color:#fff;display:grid;place-items:center;height:100vh">My tool</body>';
+  await page.setInputFiles('input[accept=".html,.htm,text/html"]', { name: 'balance-tool.html', mimeType: 'text/html', buffer: Buffer.from(tool) });
+  await page.waitForSelector('.tool-host iframe');
+  await page.waitForTimeout(2500);
+  // Headless Chrome answers with a fake whole-screen share, not "this tab",
+  // so Element Capture can't be exercised here: check the app refuses to
+  // record the wrong surface and explains what to pick.
+  await page.waitForTimeout(500);
+  check(await page.isVisible('.tool-host iframe'), 'HTML tool runs inside the recorder');
+  check(await page.isVisible('text=choose “This tab”'), 'wrong share surface is refused with a clear hint');
+  check(await page.isVisible('.tool-capture'), '"Show this tool in the recording" stays available');
+  await page.screenshot({ path: `${OUT}/tool.png` });
   await page.keyboard.press('2');
 
   const dl = page.waitForEvent('download', { timeout: 30000 });
