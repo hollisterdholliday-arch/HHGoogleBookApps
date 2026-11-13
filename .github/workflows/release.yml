@@ -1,0 +1,64 @@
+# Publish an app: push a tag named <app>-v<version>, e.g.
+#   git tag notes-v1.0 && git push origin notes-v1.0
+# The release APK is attached to a GitHub Release you can download on the
+# Googlebook.
+name: Release APK
+
+on:
+  push:
+    tags: ["*-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse tag
+        id: tag
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          app="${tag%-v*}"
+          version="${tag##*-v}"
+          if [ ! -f "apps/$app/build.gradle.kts" ]; then
+            echo "::error::No app at apps/$app for tag $tag"; exit 1
+          fi
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode release keystore (if secrets are set)
+        env:
+          HH_KEYSTORE_BASE64: ${{ secrets.HH_KEYSTORE_BASE64 }}
+        if: env.HH_KEYSTORE_BASE64 != ''
+        run: |
+          echo "$HH_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "HH_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          HH_VERSION_CODE: ${{ github.run_number }}
+          HH_KEYSTORE_PASSWORD: ${{ secrets.HH_KEYSTORE_PASSWORD }}
+          HH_KEY_ALIAS: ${{ secrets.HH_KEY_ALIAS }}
+          HH_KEY_PASSWORD: ${{ secrets.HH_KEY_PASSWORD }}
+        run: ./gradlew ":apps:${{ steps.tag.outputs.app }}:assembleRelease"
+
+      - name: Rename APK
+        run: |
+          cp apps/${{ steps.tag.outputs.app }}/build/outputs/apk/release/*.apk \
+             "${{ steps.tag.outputs.app }}-${{ steps.tag.outputs.version }}.apk"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.tag.outputs.app }}-${{ steps.tag.outputs.version }}.apk
+          generate_release_notes: true

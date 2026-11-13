@@ -1,0 +1,22 @@
+# Gradle / build output
+.gradle/
+.kotlin/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing: never commit real keys (the shared debug key is intentional)
+*.jks
+release.keystore
+keystore.properties
+
+# OS
+.DS_Store
+Thumbs.db
