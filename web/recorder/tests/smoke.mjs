@@ -160,6 +160,35 @@ try {
   await page.screenshot({ path: `${OUT}/tool.png` });
   await page.keyboard.press('2');
 
+  // Scene builder: the real engine previews the scene; drag, restyle, save.
+  await page.click('text=New scene');
+  await page.waitForSelector('.builder .stage canvas');
+  await page.waitForTimeout(800);
+  const pix = (x, y) =>
+    page.evaluate(([x, y]) => [...document.querySelector('.builder .stage canvas').getContext('2d').getImageData(x, y, 1, 1).data].slice(0, 3), [x, y]);
+  const corner = await pix(1880, 40);
+  check(corner[2] > 40 && corner[2] > corner[1], `builder previews the aurora background live (rgb ${corner.join(',')})`);
+  const hit = page.locator('.hit').nth(1); // the shared-screen layer
+  const box = await hit.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 30, { steps: 6 });
+  await page.mouse.up();
+  const moved = await hit.boundingBox();
+  check(Math.abs(moved.x - box.x - 60) < 6, 'layers can be dragged on the preview');
+  await page.click('.layer-row >> text=Camera');
+  await page.click('role=switch[name="Remove background"]'); // cutout off so shapes apply
+  await page.click('.shape-opt >> text=Cookie');
+  await page.fill('.builder-right .name-input', 'My camera');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/builder.png` });
+  await page.click('text=Save scene');
+  await page.waitForSelector('.scene-card-wrap .scene-card.active', { timeout: 5000 });
+  check((await page.textContent('.scene-card-wrap .scene-card.active')).includes('Float over the loop'), 'saved scene joins the scene list and is live');
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `${OUT}/custom-scene.png` });
+  await page.keyboard.press('2');
+
   await page.click('button[aria-label="Start recording"]');
   await page.waitForTimeout(4500);
   check(await page.isVisible('.rec-chip'), 'REC chip shows while recording');

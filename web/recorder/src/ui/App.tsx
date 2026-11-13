@@ -4,6 +4,8 @@ import { DEFAULT_FX, type BgMode, type BgPreset, type FxSettings } from '../engi
 import { idbGet, idbSet } from '../lib/idb';
 import { MiniPanel, miniSupported, useMiniWindow } from './MiniWindow';
 import { Library } from './Library';
+import { Builder } from './Builder';
+import { cssClip, loadCustom, loadMedia, saveCustom, templates, type CustomScene } from '../engine/custom';
 import { captionAvailability, installCaptions, type CaptionAvailability } from '../engine/captions';
 import { addFileTool, forgetTool, linkTool, loadTools, saveTools, toolUrl, type Tool } from '../lib/tools';
 import type { SceneText } from '../engine/compositor';
@@ -71,6 +73,8 @@ export function App() {
   const [tab, setTab] = useState<'text' | 'sources' | 'effects' | 'content'>('text');
   const [tools, setTools] = useState<Tool[]>(loadTools);
   const [view, setView] = useState<'record' | 'library'>('record');
+  const [customs, setCustoms] = useState<CustomScene[]>(loadCustom);
+  const [editing, setEditing] = useState<{ scene: CustomScene; isNew: boolean; back: number } | null>(null);
   const [captionsOn, setCaptionsOn] = useState<boolean>(() => store.get('captions', false));
   const [capAvail, setCapAvail] = useState<CaptionAvailability | 'unknown'>('unknown');
   const [activeTool, setActiveTool] = useState<{ tool: Tool; url: string } | null>(null);
@@ -137,6 +141,32 @@ export function App() {
     store.set('fx', fx);
   }, [studio, fx]);
   useEffect(() => saveTools(tools), [tools]);
+  useEffect(() => {
+    studio.comp.customs = customs;
+    saveCustom(customs);
+    // Have pictures and video loops ready before a scene needs them.
+    for (const c of customs) {
+      if (c.bg.kind === 'video') void loadMedia(c.bg.media);
+      for (const l of c.layers) if (l.media) void loadMedia(l.media);
+    }
+  }, [studio, customs]);
+  const allScenes = [...SCENES.map((x) => ({ id: x.id, name: x.name })), ...customs.map((c) => ({ id: c.id, name: c.name }))];
+  const sceneName = (id: number) => allScenes.find((x) => x.id === id)?.name ?? '';
+  // Put the live preview back on the recorder screen after the builder.
+  useEffect(() => {
+    if (!editing && view === 'record') stageRef.current?.prepend(studio.comp.canvas);
+  }, [studio, editing, view]);
+  const openBuilder = (c?: CustomScene) => {
+    const id = c?.id ?? Math.max(99, ...customs.map((x) => x.id)) + 1;
+    const scene = c ? structuredClone(c) : { ...templates()[1].make(), id };
+    setEditing({ scene, isNew: !c, back: scene.id === sceneRef.current ? 2 : sceneRef.current });
+  };
+  const closeBuilder = (goTo: number) => {
+    setEditing(null);
+    studio.comp.setScene(goTo);
+    setSceneState(goTo);
+    sceneRef.current = goTo;
+  };
   const captionLang = navigator.language || 'en-US';
   // Asked only when needed (turning captions on, or recording with them on):
   // the check is heavy, so it never runs just because the page opened.
@@ -176,13 +206,15 @@ export function App() {
   const mini = useMiniWindow(theme);
 
   const sceneRef = useRef(scene);
+  const nameRef = useRef<(id: number) => string>(() => '');
+  nameRef.current = sceneName;
   const setScene = useCallback(
     (id: number) => {
       studio.comp.setScene(id);
       setSceneState(id);
       sceneRef.current = id;
       store.set('scene', id);
-      studio.markScene(SCENES.find((x) => x.id === id)?.name ?? '');
+      studio.markScene(nameRef.current(id));
     },
     [studio],
   );
@@ -291,7 +323,7 @@ export function App() {
       window.setTimeout(() => {
         setCount(0);
         try {
-          studio.startRecording(s, SCENES.find((x) => x.id === sceneRef.current)?.name ?? '');
+          studio.startRecording(s, nameRef.current(sceneRef.current));
           setPaused(false);
           setElapsed(0);
           setPhase('recording');
@@ -484,8 +516,27 @@ export function App() {
 
       {!supported && <div className="banner">This browser can’t record. Open Recorder in Google Chrome or Microsoft Edge on a computer.</div>}
 
-      {view === 'library' && <Library folder={folder} onChooseFolder={pickFolder} say={(m) => say({ msg: m })} />}
-      <main className="body" hidden={view !== 'record'}>
+      {editing && (
+        <Builder
+          studio={studio}
+          initial={editing.scene}
+          isNew={editing.isNew}
+          onCancel={() => closeBuilder(editing.isNew ? editing.back : editing.scene.id)}
+          onSave={(c) => {
+            setCustoms((list) => (list.some((x) => x.id === c.id) ? list.map((x) => (x.id === c.id ? c : x)) : [...list, c]));
+            studio.comp.customs = customs.some((x) => x.id === c.id) ? customs.map((x) => (x.id === c.id ? c : x)) : [...customs, c];
+            closeBuilder(c.id);
+            say({ msg: `Saved “${c.name}”. It’s in your scene list and the mini window.` }, 4000);
+          }}
+          onDelete={(id) => {
+            setCustoms((list) => list.filter((x) => x.id !== id));
+            studio.comp.customs = customs.filter((x) => x.id !== id);
+            closeBuilder(2);
+          }}
+        />
+      )}
+      {!editing && view === 'library' && <Library folder={folder} onChooseFolder={pickFolder} say={(m) => say({ msg: m })} />}
+      <main className="body" hidden={view !== 'record' || !!editing}>
         <section className="stage-col" aria-label="Preview">
           <div className="stage-wrap">
             <div className="stage" ref={stageRef}>
@@ -560,6 +611,23 @@ export function App() {
                   </div>
                 </button>
               ))}
+              {customs.map((c) => (
+                <div key={c.id} className="scene-card-wrap">
+                  <button type="button" className={`scene-card press ${c.id === scene ? 'active' : ''}`} aria-pressed={c.id === scene} onClick={() => setScene(c.id)}>
+                    <CustomThumb scene={c} />
+                    <div className="scene-meta">
+                      <span>{c.name}</span>
+                    </div>
+                  </button>
+                  <button type="button" className="edit-scene press" aria-label={`Edit ${c.name}`} title="Edit scene" onClick={() => openBuilder(c)} disabled={phase !== 'idle'}>
+                    ✎
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="scene-card new-scene press" onClick={() => openBuilder()} disabled={phase !== 'idle'}>
+                <span aria-hidden="true">+</span>
+                New scene
+              </button>
             </div>
           </nav>
         </section>
@@ -837,6 +905,7 @@ export function App() {
         <MiniPanel
           win={mini.win}
           scene={scene}
+          scenes={allScenes}
           setScene={setScene}
           phase={phase}
           paused={paused}
@@ -888,6 +957,35 @@ function Thumb({ layout }: { layout: Layout }) {
       <div style={boxStyle(layout.camera, { background: 'linear-gradient(165deg,#6b5546,#2f2622)', boxShadow: layout.camera.ring ? '0 0 0 2px #fff' : 'none' })} />
       {layout.title && <div style={{ left: '8%', bottom: '14%', width: '50%', height: '10%', borderRadius: 3, background: 'rgba(255,255,255,.9)' }} />}
       {layout.lower && <div style={{ left: '5%', bottom: '8%', width: '40%', height: '14%', borderRadius: 4, background: 'rgba(20,22,40,.75)' }} />}
+    </div>
+  );
+}
+
+// Thumbnail of a custom scene: its background and layers as simple boxes.
+const BG_CSS = (c: CustomScene) =>
+  c.bg.kind === 'color' ? c.bg.value : c.bg.kind === 'gradient' ? `linear-gradient(135deg,${c.bg.from},${c.bg.to})` : c.bg.kind === 'aurora' ? 'linear-gradient(135deg,#5b67d8,#c45bd8 60%,#3fb8c9)' : '#222';
+const LAYER_CSS: Record<string, string> = { camera: 'linear-gradient(165deg,#6b5546,#2f2622)', screen: '#eef0fb', screen2: '#ffffff', tool: '#e3f4ea', image: '#ffd8a8', clip: '#3b1f4d', timer: '#fff1e6' };
+function CustomThumb({ scene }: { scene: CustomScene }) {
+  return (
+    <div className="thumb" aria-hidden="true" style={{ background: BG_CSS(scene) }}>
+      {scene.layers.map((l) =>
+        l.hidden ? null : (
+          <div
+            key={l.id}
+            style={{
+              left: `${l.x * 100}%`,
+              top: `${l.y * 100}%`,
+              width: `${l.w * 100}%`,
+              height: `${l.h * 100}%`,
+              opacity: l.opacity,
+              clipPath: l.type === 'text' || (l.type === 'camera' && l.cutout) ? undefined : cssClip(l.shape, l.round),
+              background: l.type === 'text' ? 'transparent' : l.type === 'shape' ? l.fill : LAYER_CSS[l.type],
+            }}
+          >
+            {l.type === 'text' && <div style={{ height: '40%', marginTop: '10%', borderRadius: 2, background: l.color ?? '#fff', opacity: 0.85 }} />}
+          </div>
+        ),
+      )}
     </div>
   );
 }
