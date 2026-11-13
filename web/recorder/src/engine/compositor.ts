@@ -14,6 +14,26 @@ export const FPS = 30;
 const FONT = '"Roboto Flex", "Google Sans", system-ui, sans-serif';
 const TRANSITION_MS = 620;
 
+export interface Brand {
+  bar: string;
+  accent: string;
+  text: string;
+  font: 'modern' | 'rounded' | 'serif';
+  logo: ImageBitmap | null;
+  logoOn: boolean;
+}
+const BRAND_FONTS: Record<string, string> = {
+  modern: FONT,
+  rounded: '"Nunito", "Roboto Flex", system-ui, sans-serif',
+  serif: '"Fraunces", Georgia, serif',
+};
+const hexAlpha = (hex: string, a: number) => {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
 export interface SceneText {
   title: string;
   name: string;
@@ -128,6 +148,13 @@ export class Compositor {
   cameraOn = true;
   mirrorCamera = false;
   ambient: HTMLCanvasElement | null = null;
+  /** Brand kit: name bar colors, font and an optional logo on every scene. */
+  brand: Brand = { bar: '#141628', accent: '#bac3ff', text: '#ffffff', font: 'modern', logo: null, logoOn: false };
+  /** 'reduced' switches scenes without motion. */
+  motion: 'expressive' | 'standard' | 'reduced' = 'expressive';
+  private get brandFont(): string {
+    return BRAND_FONTS[this.brand.font] ?? FONT;
+  }
 
   /** Scenes made in the scene builder. */
   customs: CustomScene[] = [];
@@ -197,9 +224,9 @@ export class Compositor {
   }
 
   private stateAt(now: number): State {
-    const t = Math.min(1, (now - this.t0) / TRANSITION_MS);
+    const t = this.motion === 'reduced' ? 1 : Math.min(1, (now - this.t0) / TRANSITION_MS);
     if (t >= 1) return this.to;
-    const g = easeOutBack(t);
+    const g = this.motion === 'standard' ? easeOutCubic(t) : easeOutBack(t);
     const f = easeOutCubic(t);
     const a = this.from;
     const b = this.to;
@@ -225,7 +252,7 @@ export class Compositor {
     ctx.fillStyle = '#0d0d10';
     ctx.fillRect(0, 0, W, H);
 
-    const fade = easeOutCubic(Math.min(1, (now - this.t0) / TRANSITION_MS));
+    const fade = this.motion === 'reduced' ? 1 : easeOutCubic(Math.min(1, (now - this.t0) / TRANSITION_MS));
     if (this.fromCustom && this.fromCustom !== this.toCustom && fade < 1) this.drawCustomExtras(this.fromCustom, s, now, 1 - fade, false);
     if (this.toCustom) {
       this.drawCustomExtras(this.toCustom, s, now, fade, true);
@@ -234,6 +261,14 @@ export class Compositor {
     }
     if (s.title > 0.01) this.drawTitle(s.title);
     if (s.lower > 0.01) this.drawLower(s.lower);
+    const logo = this.brand.logo;
+    if (this.brand.logoOn && logo) {
+      const h = 110;
+      const w = (logo.width / logo.height) * h;
+      ctx.globalAlpha = 0.95;
+      ctx.drawImage(logo, W - w - 44, 40, w, h);
+      ctx.globalAlpha = 1;
+    }
 
     this.frameNo++;
     if (this.ambient && this.frameNo % 4 === 0) {
@@ -655,9 +690,9 @@ export class Compositor {
     const ctx = this.ctx;
     const t = this.text;
     ctx.save();
-    ctx.font = `750 46px ${FONT}`;
+    ctx.font = `750 46px ${this.brandFont}`;
     const nameW = ctx.measureText(t.name).width;
-    ctx.font = `500 29px ${FONT}`;
+    ctx.font = `500 29px ${this.brandFont}`;
     const roleW = ctx.measureText(t.role).width;
     const w = Math.min(W * 0.7, Math.max(nameW, roleW) + 120);
     const h = 130;
@@ -677,19 +712,19 @@ export class Compositor {
     ctx.filter = 'blur(22px)';
     ctx.drawImage(sc, x - 20, y - 20, w + 40, h + 40);
     ctx.filter = 'none';
-    ctx.fillStyle = 'rgba(20,22,40,0.55)';
+    ctx.fillStyle = hexAlpha(this.brand.bar, 0.72);
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#bac3ff';
+    ctx.fillStyle = this.brand.accent;
     ctx.beginPath();
     ctx.roundRect(x + 28, y + 26, 13, h - 52, 7);
     ctx.fill();
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `750 46px ${FONT}`;
+    ctx.fillStyle = this.brand.text;
+    ctx.font = `750 46px ${this.brandFont}`;
     ctx.fillText(t.name, x + 66, y + 66);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = `500 29px ${FONT}`;
+    ctx.fillStyle = hexAlpha(this.brand.text, 0.85);
+    ctx.font = `500 29px ${this.brandFont}`;
     ctx.fillText(t.role, x + 66, y + 104);
     ctx.restore();
   }

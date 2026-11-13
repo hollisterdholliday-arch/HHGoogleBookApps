@@ -5,6 +5,10 @@ import { idbGet, idbSet } from '../lib/idb';
 import { MiniPanel, miniSupported, useMiniWindow } from './MiniWindow';
 import { Library } from './Library';
 import { Builder } from './Builder';
+import { BITRATES, DEFAULT_PREFS, Settings, type Prefs } from './Settings';
+import { Welcome } from './Welcome';
+import { applyAccent } from '../lib/theme';
+import { exportPack, importPack } from '../lib/packs';
 import { cssClip, loadCustom, loadMedia, saveCustom, templates, type CustomScene } from '../engine/custom';
 import { captionAvailability, installCaptions, type CaptionAvailability } from '../engine/captions';
 import { addFileTool, forgetTool, linkTool, loadTools, saveTools, toolUrl, type Tool } from '../lib/tools';
@@ -65,14 +69,47 @@ const errText = (e: unknown) => (e instanceof DOMException && e.name === 'NotAll
 export function App() {
   const studio = getStudio();
   const [, rerender] = useState(0);
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => store.get('theme', 'dark'));
+  const [prefs, setPrefsState] = useState<Prefs>(() => {
+    const p = store.get<Partial<Prefs>>('prefs', {});
+    return { ...DEFAULT_PREFS, theme: store.get('theme', DEFAULT_PREFS.theme), ...p, brand: { ...DEFAULT_PREFS.brand, ...(p.brand ?? {}) } };
+  });
+  const setPrefs = (p: Prefs) => {
+    setPrefsState(p);
+    store.set('prefs', p);
+  };
+  const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const on = () => setSystemDark(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const theme: 'dark' | 'light' = prefs.theme === 'system' ? (systemDark ? 'dark' : 'light') : prefs.theme;
+  const setTheme = (t: 'dark' | 'light') => setPrefs({ ...prefs, theme: t });
+  const [welcome, setWelcome] = useState<boolean>(() => !store.get('welcomed', false));
+  const [hasLogo, setHasLogo] = useState(false);
+  const [installEvt, setInstallEvt] = useState<(Event & { prompt: () => Promise<void> }) | null>(null);
+  const [installed, setInstalled] = useState(() => matchMedia('(display-mode: standalone), (display-mode: window-controls-overlay)').matches);
+  useEffect(() => {
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      setInstallEvt(e as Event & { prompt: () => Promise<void> });
+    };
+    const onInstalled = () => setInstalled(true);
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
   const [scene, setSceneState] = useState<number>(() => store.get('scene', 2));
   const [text, setText] = useState<SceneText>(() => ({ ...DEFAULT_TEXT, ...store.get('text', {}) }));
   const [mirror, setMirror] = useState<boolean>(() => store.get('mirror', false));
   const [micMuted, setMicMuted] = useState(false);
   const [tab, setTab] = useState<'text' | 'sources' | 'effects' | 'content'>('text');
   const [tools, setTools] = useState<Tool[]>(loadTools);
-  const [view, setView] = useState<'record' | 'library'>('record');
+  const [view, setView] = useState<'record' | 'library' | 'settings'>('record');
   const [customs, setCustoms] = useState<CustomScene[]>(loadCustom);
   const [editing, setEditing] = useState<{ scene: CustomScene; isNew: boolean; back: number } | null>(null);
   const [captionsOn, setCaptionsOn] = useState<boolean>(() => store.get('captions', false));
@@ -125,8 +162,32 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    store.set('theme', theme);
-  }, [theme]);
+    const docs = [document, ...(miniDoc.current ? [miniDoc.current] : [])];
+    applyAccent(prefs.accent, theme === 'dark', docs);
+    for (const d of docs) {
+      const st = d.documentElement.style;
+      st.setProperty('--blur', `${Math.round(4 + prefs.glass * 36)}px`);
+      st.setProperty('--glass-a', String(0.9 - prefs.glass * 0.4));
+      d.documentElement.dataset.motion = prefs.motion;
+    }
+    studio.comp.motion = prefs.motion;
+    studio.bitrate = BITRATES[prefs.quality];
+    const micOpts = { echoCancellation: prefs.echo, noiseSuppression: prefs.noise, autoGainControl: prefs.agc };
+    if (JSON.stringify(micOpts) !== JSON.stringify(studio.micOpts)) {
+      studio.micOpts = micOpts;
+      if (studio.micLive) void studio.startMic().catch(() => {});
+    }
+    studio.comp.brand = { ...studio.comp.brand, ...prefs.brand };
+  }, [studio, theme, prefs]);
+  useEffect(() => {
+    idbGet<Blob>('brandLogo').then(async (b) => {
+      if (!b) return;
+      studio.comp.brand.logo = await createImageBitmap(b).catch(() => null);
+      setHasLogo(!!studio.comp.brand.logo);
+    });
+    void document.fonts.load('700 40px "Nunito"');
+  }, [studio]);
+  const miniDoc = useRef<Document | null>(null);
   useEffect(() => {
     studio.comp.text = text;
     store.set('text', text);
@@ -204,6 +265,7 @@ export function App() {
     });
   }, [studio]);
   const mini = useMiniWindow(theme);
+  miniDoc.current = mini.win?.document ?? null;
 
   const sceneRef = useRef(scene);
   const nameRef = useRef<(id: number) => string>(() => '');
@@ -315,11 +377,11 @@ export function App() {
       sink = downloadSink(name, studio.format.mime);
     }
     setPhase('countdown');
-    setCount(3);
+    const n = prefs.countdown;
+    setCount(n);
     const s = sink;
     countTimers.current = [
-      window.setTimeout(() => setCount(2), 900),
-      window.setTimeout(() => setCount(1), 1800),
+      ...Array.from({ length: Math.max(0, n - 1) }, (_, i) => window.setTimeout(() => setCount(n - 1 - i), 900 * (i + 1))),
       window.setTimeout(() => {
         setCount(0);
         try {
@@ -332,7 +394,7 @@ export function App() {
           void s.abort();
           say({ msg: 'Could not start recording in this browser.' });
         }
-      }, 2700),
+      }, 900 * n),
     ];
   };
 
@@ -501,9 +563,9 @@ export function App() {
           </div>
         )}
         <div className="view-switch seg" role="tablist" aria-label="View">
-          {(['record', 'library'] as const).map((v) => (
-            <button key={v} type="button" role="tab" aria-selected={view === v} className={`seg-btn press ${view === v ? 'active' : ''}`} onClick={() => setView(v)}>
-              {v === 'record' ? 'Recorder' : 'Library'}
+          {(['record', 'library', 'settings'] as const).map((v) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} className={`seg-btn press ${view === v ? 'active' : ''}`} onClick={() => setView(v)} disabled={!!editing}>
+              {{ record: 'Recorder', library: 'Library', settings: 'Settings' }[v]}
             </button>
           ))}
         </div>
@@ -532,6 +594,80 @@ export function App() {
             setCustoms((list) => list.filter((x) => x.id !== id));
             studio.comp.customs = customs.filter((x) => x.id !== id);
             closeBuilder(2);
+          }}
+        />
+      )}
+      {!editing && view === 'settings' && (
+        <Settings
+          prefs={prefs}
+          setPrefs={setPrefs}
+          folderName={folder?.name ?? null}
+          onChangeFolder={pickFolder}
+          sceneCount={customs.length}
+          hasLogo={hasLogo}
+          installed={installed}
+          onShowWelcome={() => setWelcome(true)}
+          onLogo={async (f) => {
+            const bmp = await createImageBitmap(f).catch(() => null);
+            if (!bmp) return say({ msg: 'That image could not be opened.' });
+            studio.comp.brand.logo = bmp;
+            setHasLogo(true);
+            setPrefs({ ...prefs, brand: { ...prefs.brand, logoOn: true } });
+            void idbSet('brandLogo', f);
+          }}
+          onExportPack={async () => {
+            const blob = await exportPack(customs, prefs.brand);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'My scenes.recorderpack';
+            a.click();
+            say({ msg: 'Saved “My scenes.recorderpack”. Send it to another teacher to import.' });
+          }}
+          onImportPack={async (f) => {
+            try {
+              const nextId = Math.max(99, ...customs.map((x) => x.id)) + 1;
+              const got = await importPack(f, nextId);
+              for (const c of got.scenes) {
+                if (c.bg.kind === 'video') await loadMedia(c.bg.media);
+                for (const l of c.layers) if (l.media) await loadMedia(l.media);
+              }
+              setCustoms((l) => [...l, ...got.scenes]);
+              if (got.brand && window.confirm('This pack includes a brand kit (colors, font and logo). Use it?')) {
+                setPrefs({ ...prefs, brand: got.brand });
+                if (got.logo) {
+                  await idbSet('brandLogo', got.logo);
+                  studio.comp.brand.logo = await createImageBitmap(got.logo).catch(() => null);
+                  setHasLogo(!!studio.comp.brand.logo);
+                }
+              }
+              say({ msg: `Added ${got.scenes.length} scene${got.scenes.length === 1 ? '' : 's'} from “${f.name}”.` });
+            } catch {
+              say({ msg: 'That file is not a Recorder scene pack.' });
+            }
+          }}
+        />
+      )}
+      {welcome && (
+        <Welcome
+          name={text.name}
+          role={text.role}
+          onNames={(name, role) => setText((t) => ({ ...t, name, role }))}
+          camOk={studio.cameraLive}
+          micOk={studio.micLive}
+          onAllow={async () => {
+            await studio.startCamera().catch(() => {});
+            await studio.startMic().catch(() => {});
+            refreshDevices();
+          }}
+          folderName={folder?.name ?? null}
+          onFolder={pickFolder}
+          canInstall={!!installEvt}
+          installed={installed}
+          onInstall={() => void installEvt?.prompt()}
+          onDone={() => {
+            setWelcome(false);
+            store.set('welcomed', true);
+            setView('record');
           }}
         />
       )}

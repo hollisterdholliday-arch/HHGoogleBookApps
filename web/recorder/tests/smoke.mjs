@@ -62,6 +62,14 @@ try {
   // private test folder (OPFS) instead, which behaves like a real folder.
   await page.addInitScript(() => {
     window.showDirectoryPicker = () => navigator.storage.getDirectory();
+    try {
+      if (!sessionStorage.getItem('seen')) {
+        localStorage.setItem('recorder.welcomed', 'true'); // tour is tested later
+        sessionStorage.setItem('seen', '1');
+      }
+    } catch {
+      /* sandboxed teaching-tool frame */
+    }
     // Headless Chromium crashes when asked about speech recognition.
     delete window.SpeechRecognition;
     delete window.webkitSpeechRecognition;
@@ -187,6 +195,37 @@ try {
   check((await page.textContent('.scene-card-wrap .scene-card.active')).includes('Float over the loop'), 'saved scene joins the scene list and is live');
   await page.waitForTimeout(700);
   await page.screenshot({ path: `${OUT}/custom-scene.png` });
+
+  // Settings: accent color re-themes the app; scene packs round-trip.
+  await page.click('role=tab[name="Settings"]');
+  await page.click('.nav-item >> text=Appearance');
+  const before = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());
+  await page.click('role=button[name="Teal"]');
+  await page.waitForTimeout(200);
+  const after = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());
+  check(before !== after && after !== '', `accent color re-themes the app (${before} → ${after})`);
+  await page.screenshot({ path: `${OUT}/settings.png` });
+  await page.click('.nav-item >> text=Scene packs');
+  const packDl = page.waitForEvent('download');
+  await page.click('text=Export pack');
+  const pack = await packDl;
+  const packPath = `${OUT}/My scenes.recorderpack`;
+  await pack.saveAs(packPath);
+  await page.setInputFiles('input[accept=".recorderpack,.json,application/json"]', packPath);
+  page.once('dialog', (d) => d.dismiss());
+  await page.waitForSelector('.toast >> text=Added 1 scene', { timeout: 10000 });
+  check((await page.$$('.scene-card-wrap')).length === 2, 'scene pack exports and imports');
+  await page.click('.nav-item >> text=About');
+  await page.click('text=Show the welcome tour again');
+  await page.waitForSelector('.welcome');
+  await page.click('text=Get started');
+  await page.fill('.welcome input >> nth=0', 'Ms. Rivera');
+  await page.click('.w-next');
+  await page.click('.w-next');
+  await page.click('.w-next');
+  await page.screenshot({ path: `${OUT}/welcome.png` });
+  await page.click('text=Open the recorder');
+  check(!(await page.isVisible('.welcome')) && (await page.evaluate(() => JSON.parse(localStorage.getItem('recorder.text')).name)) === 'Ms. Rivera', 'welcome tour sets your name and returns to the recorder');
   await page.keyboard.press('2');
 
   await page.click('button[aria-label="Start recording"]');

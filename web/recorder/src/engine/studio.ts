@@ -155,9 +155,7 @@ export class Studio {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        ...this.micOpts,
       },
     });
     this.micId = stream.getAudioTracks()[0]?.getSettings().deviceId ?? deviceId;
@@ -186,6 +184,10 @@ export class Studio {
     else this.chapters.push({ t, scene: name });
   }
 
+  /** Recording quality (bits per second) and mic clean-up, from Settings. */
+  bitrate = 8_000_000;
+  micOpts = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+
   /** Live on-device captions while recording (set from settings). */
   captionsOn = false;
   captionLang = 'en-US';
@@ -194,7 +196,7 @@ export class Studio {
   startRecording(sink: Sink, firstScene: string): void {
     const video = this.comp.captureStream().getVideoTracks()[0];
     const stream = new MediaStream([video, this.audio.track]);
-    const rec = new Recording(stream, this.format.mime, sink);
+    const rec = new Recording(stream, this.format.mime, sink, this.bitrate);
     this.recording = rec;
     this.chapters = [{ t: 0, scene: firstScene }];
     rec.start();

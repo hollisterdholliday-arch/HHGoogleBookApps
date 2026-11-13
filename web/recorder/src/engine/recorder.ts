@@ -41,10 +41,10 @@ export class Recording {
   private pausedTotal = 0;
   error: unknown = null;
 
-  constructor(stream: MediaStream, mime: string, private sink: Sink) {
+  constructor(stream: MediaStream, mime: string, private sink: Sink, videoBitsPerSecond = 8_000_000) {
     this.rec = new MediaRecorder(stream, {
       mimeType: mime || undefined,
-      videoBitsPerSecond: 8_000_000,
+      videoBitsPerSecond,
       audioBitsPerSecond: 160_000,
       // A keyframe every 2 s lets the Library trim within 2 s of any point.
       videoKeyFrameIntervalDuration: 2000,

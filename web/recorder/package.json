@@ -13,6 +13,7 @@
     "test": "node tests/smoke.mjs"
   },
   "dependencies": {
+    "@material/material-color-utilities": "0.4.0",
     "@mediapipe/tasks-vision": "1.2.3",
     "mp4-muxer": "5.2.2",
     "mp4box": "2.5.0",
