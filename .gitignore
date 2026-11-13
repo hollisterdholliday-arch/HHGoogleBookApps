@@ -20,3 +20,9 @@ keystore.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Web apps
+node_modules/
+dist/
+test-results/
+public/mediapipe/

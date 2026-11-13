@@ -1,10 +1,13 @@
 # HH Google Book Apps
 
-Personal Android apps (APKs) built to run as desktop apps on a Lenovo
-Googlebook (Intel), and on Android phones too.
+Apps built to run as desktop apps on a Lenovo Googlebook (Intel), plus Mac,
+Windows and Chromebooks:
 
-Stack: **Kotlin + Jetpack Compose (Material 3)**, built with Gradle, with APKs
-produced automatically by GitHub Actions.
+- **Web apps (PWAs)** in `web/`: run in Chrome or Edge and install like
+  native apps. Published to GitHub Pages from `main`.
+  - [`web/recorder`](web/recorder): lesson video recorder with live scene switching.
+- **Android apps (APKs)** in `apps/`: Kotlin + Jetpack Compose (Material 3),
+  built by GitHub Actions. (None yet; the setup is ready.)
 
 ## Layout
 
