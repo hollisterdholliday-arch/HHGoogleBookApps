@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { SCENES, type Box, type Layout } from '../engine/scenes';
+import { SCENES, showsScreen, type Box, type Layout } from '../engine/scenes';
+import { DEFAULT_FX, type BgMode, type BgPreset, type FxSettings } from '../engine/effects';
+import { idbGet, idbSet } from '../lib/idb';
+import { MiniPanel, miniSupported, useMiniWindow } from './MiniWindow';
 import type { SceneText } from '../engine/compositor';
 import type { DeviceLists } from '../engine/studio';
 import { Studio } from '../engine/studio';
 import type { Sink } from '../engine/recorder';
 import { canPickFolder, chooseFolder, downloadSink, ensureWritable, fileNameFor, folderSink, savedFolder } from '../lib/folder';
-import { IconCamera, IconClose, IconFolder, IconMic, IconMoon, IconPause, IconPlay, IconScreen, IconSun } from './icons';
+import { IconCamera, IconClose, IconFolder, IconMic, IconMoon, IconPause, IconPip, IconPlay, IconScreen, IconSun } from './icons';
 
 // One studio for the whole page (React StrictMode mounts twice in dev).
 let studioSingleton: Studio | null = null;
@@ -62,7 +65,9 @@ export function App() {
   const [text, setText] = useState<SceneText>(() => ({ ...DEFAULT_TEXT, ...store.get('text', {}) }));
   const [mirror, setMirror] = useState<boolean>(() => store.get('mirror', false));
   const [micMuted, setMicMuted] = useState(false);
-  const [tab, setTab] = useState<'text' | 'sources'>('text');
+  const [tab, setTab] = useState<'text' | 'sources' | 'effects'>('text');
+  const [fx, setFx] = useState<FxSettings>(() => ({ ...DEFAULT_FX, ...store.get('fx', {}) }));
+  const [hasBgImage, setHasBgImage] = useState(false);
   const [devices, setDevices] = useState<DeviceLists>({ cameras: [], mics: [] });
   const [folder, setFolder] = useState<FileSystemDirectoryHandle | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
@@ -117,6 +122,19 @@ export function App() {
     store.set('mirror', mirror);
   }, [studio, mirror]);
   useEffect(() => studio.audio.setMicMuted(micMuted), [studio, micMuted]);
+  useEffect(() => {
+    studio.comp.fx.settings = fx;
+    store.set('fx', fx);
+  }, [studio, fx]);
+  useEffect(() => {
+    studio.comp.fx.onStatus = () => rerender((n) => n + 1);
+    idbGet<Blob>('bgImage').then(async (b) => {
+      if (!b) return;
+      studio.comp.fx.bgImage = await createImageBitmap(b).catch(() => null);
+      setHasBgImage(!!studio.comp.fx.bgImage);
+    });
+  }, [studio]);
+  const mini = useMiniWindow(theme);
 
   const setScene = useCallback(
     (id: number) => {
@@ -161,7 +179,7 @@ export function App() {
     if (studio.sharing) return studio.stopShare();
     try {
       await studio.shareScreen();
-      if (scene === 1 || scene === 4 || scene >= 6) setScene(2);
+      if (!showsScreen(scene)) setScene(2);
     } catch (e) {
       if (errText(e) === 'blocked') return; // user closed the picker
       say({ msg: 'Screen sharing is not available here.' });
@@ -274,7 +292,19 @@ export function App() {
     setPaused(r.paused);
   };
 
-  // Keyboard: 1–8 or Ctrl+1–8 switch scenes; Ctrl+Shift+Enter records; Ctrl+Shift+Space pauses.
+  const onBgImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    const bmp = await createImageBitmap(f).catch(() => null);
+    if (!bmp) return say({ msg: 'That image could not be opened.' });
+    studio.comp.fx.bgImage = bmp;
+    setHasBgImage(true);
+    setFx((x) => ({ ...x, bg: 'replace', preset: 'image' }));
+    void idbSet('bgImage', f);
+  };
+
+  // Keyboard: 1–9 or Ctrl+1–9 switch scenes; Ctrl+Shift+Enter records; Ctrl+Shift+Space pauses.
   const keys = useRef({ toggleRecord, togglePause, setScene });
   keys.current = { toggleRecord, togglePause, setScene };
   useEffect(() => {
@@ -295,9 +325,10 @@ export function App() {
         }
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    const wins = [window, ...(mini.win ? [mini.win] : [])];
+    wins.forEach((w) => w.addEventListener('keydown', onKey));
+    return () => wins.forEach((w) => w.removeEventListener('keydown', onKey));
+  }, [mini.win]);
 
   const live = phase === 'recording';
   const setField = (k: keyof SceneText) => (e: React.ChangeEvent<HTMLInputElement>) => setText((t) => ({ ...t, [k]: e.target.value }));
@@ -366,6 +397,11 @@ export function App() {
                 <button className={`tbtn press ${paused ? 'on' : ''}`} type="button" disabled={!live} onClick={togglePause} aria-label={paused ? 'Resume recording' : 'Pause recording'}>
                   {paused ? <IconPlay /> : <IconPause />}
                 </button>
+                {miniSupported() && (
+                  <button className={`tbtn press ${mini.win ? 'on' : ''}`} type="button" aria-pressed={!!mini.win} onClick={mini.win ? mini.close : mini.open} aria-label="Pop out mini controls" title="Mini controls that stay on top of other apps">
+                    <IconPip />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -391,9 +427,9 @@ export function App() {
 
         <aside className="panel scroll" aria-label="Settings">
           <div className="tabs" role="tablist">
-            {(['text', 'sources'] as const).map((t) => (
+            {(['text', 'sources', 'effects'] as const).map((t) => (
               <button key={t} role="tab" type="button" aria-selected={tab === t} className={`tab press ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-                {t === 'text' ? 'Text' : 'Sources'}
+                {{ text: 'Text', sources: 'Sources', effects: 'Effects' }[t]}
               </button>
             ))}
           </div>
@@ -481,6 +517,63 @@ export function App() {
             </div>
           )}
 
+          {tab === 'effects' && (
+            <div className="section">
+              <h2 className="h-section">Camera effects</h2>
+              <div className="sub">Background</div>
+              <div className="seg" role="radiogroup" aria-label="Background">
+                {(['none', 'blur', 'replace', 'remove'] as BgMode[]).map((m) => (
+                  <button key={m} type="button" role="radio" aria-checked={fx.bg === m} className={`seg-btn press ${fx.bg === m ? 'active' : ''}`} onClick={() => setFx({ ...fx, bg: m })}>
+                    {{ none: 'Off', blur: 'Blur', replace: 'Replace', remove: 'Remove' }[m]}
+                  </button>
+                ))}
+              </div>
+              {fx.bg === 'replace' && (
+                <div className="swatches" role="radiogroup" aria-label="Replace with">
+                  {(['indigo', 'sunset', 'slate'] as BgPreset[]).map((p) => (
+                    <button key={p} type="button" role="radio" aria-checked={fx.preset === p} aria-label={p} className={`swatch press bg-${p} ${fx.preset === p ? 'active' : ''}`} onClick={() => setFx({ ...fx, preset: p })} />
+                  ))}
+                  {hasBgImage && (
+                    <button type="button" role="radio" aria-checked={fx.preset === 'image'} className={`swatch press bg-image ${fx.preset === 'image' ? 'active' : ''}`} onClick={() => setFx({ ...fx, preset: 'image' })}>
+                      Photo
+                    </button>
+                  )}
+                  <label className="swatch upload press">
+                    + Image
+                    <input type="file" accept="image/*" onChange={onBgImage} />
+                  </label>
+                </div>
+              )}
+              <div className="note">
+                {fx.bg === 'none' && 'Your real background.'}
+                {fx.bg === 'blur' && 'Softly blurs your room, like Google Meet.'}
+                {fx.bg === 'replace' && 'Swaps your room for a backdrop or your own photo.'}
+                {fx.bg === 'remove' && 'Cuts you out so you float over whatever is behind your camera bubble.'}
+                {' '}The Presenter scene always removes your background.
+              </div>
+              {studio.comp.fx.status === 'loading' && <div className="note">Loading effects… (first time only)</div>}
+              {studio.comp.fx.status === 'failed' && <div className="note">Effects could not start on this computer.</div>}
+              <div className="divider" />
+              {(
+                [
+                  ['autoFrame', 'Auto-framing', 'Keeps you centered as you move'],
+                  ['lightFix', 'Light fix', 'Brightens a dim room'],
+                ] as const
+              ).map(([k, label, note]) => (
+                <div className="row" key={k}>
+                  <div className="tile-main">
+                    <div className="tile-title">{label}</div>
+                    <div className="note">{note}</div>
+                  </div>
+                  <button className="switch" type="button" role="switch" aria-checked={fx[k]} aria-label={label} onClick={() => setFx({ ...fx, [k]: !fx[k] })}>
+                    <i />
+                  </button>
+                </div>
+              ))}
+              <div className="note">All effects run on this computer. Nothing is uploaded.</div>
+            </div>
+          )}
+
           <div className="divider" />
           <div className="row">
             <div className="chip-icon" aria-hidden="true">
@@ -498,6 +591,20 @@ export function App() {
           </div>
         </aside>
       </main>
+
+      {mini.win && (
+        <MiniPanel
+          win={mini.win}
+          scene={scene}
+          setScene={setScene}
+          phase={phase}
+          paused={paused}
+          elapsed={fmt(elapsed)}
+          count={count}
+          onRecord={toggleRecord}
+          onPause={togglePause}
+        />
+      )}
 
       {toast && (
         <div role="status" className="toast">

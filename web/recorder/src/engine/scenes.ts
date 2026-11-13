@@ -13,6 +13,8 @@ export interface Box {
   o: number;
   /** White ring around the box (camera bubbles). */
   ring?: boolean;
+  /** Camera only: background removed, no frame, person floats over the scene. */
+  cutout?: boolean;
 }
 
 export type CardKind = 'problem' | 'brb' | 'outro';
@@ -54,13 +56,17 @@ export const SCENES: SceneDef[] = [
   },
   { id: 4, name: 'Just me', layout: layout({ camera: FULL, lower: true }) },
   { id: 5, name: 'Screen only', layout: layout({ screen: FULL }) },
-  { id: 6, name: 'Try this', layout: layout({ card: 'problem', camera: bubble(0.8, 0.64, 0.16) }) },
-  { id: 7, name: 'Be right back', layout: layout({ card: 'brb' }) },
-  { id: 8, name: 'Outro', layout: layout({ card: 'outro', camera: { ...bubble(0.08, 0.22, 0.31), ring: false } }) },
+  {
+    id: 6,
+    name: 'Presenter',
+    layout: layout({ screen: FULL, camera: { x: 0.6, y: 0.16, w: 0.42, h: 0.84, r: 0, o: 1, cutout: true }, lower: true }),
+  },
+  { id: 7, name: 'Try this', layout: layout({ card: 'problem', camera: bubble(0.8, 0.64, 0.16) }) },
+  { id: 8, name: 'Be right back', layout: layout({ card: 'brb' }) },
+  { id: 9, name: 'Outro', layout: layout({ card: 'outro', camera: { ...bubble(0.08, 0.22, 0.31), ring: false } }) },
 ];
 
 export const sceneById = (id: number): SceneDef => SCENES.find((s) => s.id === id) ?? SCENES[1];
 
-export function hidesScreen(l: Layout): boolean {
-  return l.screen.o === 0;
-}
+/** Scenes that show the shared screen. */
+export const showsScreen = (id: number): boolean => sceneById(id).layout.screen.o > 0;

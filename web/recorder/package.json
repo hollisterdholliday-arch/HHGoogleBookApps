@@ -5,12 +5,15 @@
   "type": "module",
   "description": "Lesson video recorder with live scene switching. Runs in Chrome and Edge as an installable web app.",
   "scripts": {
+    "predev": "node scripts/copy-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-assets.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "node tests/smoke.mjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "1.2.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

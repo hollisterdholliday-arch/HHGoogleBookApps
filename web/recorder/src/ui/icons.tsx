@@ -56,3 +56,9 @@ export const IconClose = () => (
     <path d="M6 6l12 12M18 6L6 18" />
   </S>
 );
+export const IconPip = () => (
+  <S>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <rect x="12" y="12" width="7" height="6" rx="1" fill="currentColor" />
+  </S>
+);

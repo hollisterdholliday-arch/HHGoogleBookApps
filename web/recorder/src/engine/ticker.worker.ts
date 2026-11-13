@@ -7,6 +7,6 @@ self.onmessage = (e: MessageEvent<{ fps: number } | 'stop'>) => {
   if (timer) clearInterval(timer);
   timer = undefined;
   if (e.data !== 'stop') {
-    timer = setInterval(() => (self as unknown as Worker).postMessage(0), 1000 / e.data.fps);
+    timer = setInterval(() => (self as unknown as Worker).postMessage(Date.now()), 1000 / e.data.fps);
   }
 };

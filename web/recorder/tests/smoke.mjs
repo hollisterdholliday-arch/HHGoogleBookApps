@@ -83,12 +83,27 @@ try {
   check(lit > 100, `stage draws video (${lit} bright samples)`);
   await page.screenshot({ path: `${OUT}/lesson.png` });
 
-  for (const [key, name] of [['3', 'side'], ['1', 'welcome'], ['4', 'justme'], ['6', 'trythis'], ['8', 'outro']]) {
+  for (const [key, name] of [['3', 'side'], ['1', 'welcome'], ['4', 'justme'], ['7', 'trythis'], ['9', 'outro']]) {
     await page.keyboard.press(key);
     await page.waitForTimeout(800);
     await page.screenshot({ path: `${OUT}/${name}.png` });
   }
   check((await page.getAttribute('.scene-card.active', 'aria-pressed')) === 'true', 'keyboard switches scenes');
+  await page.keyboard.press('2');
+
+  // Camera effects: MediaPipe must load from our own server and run.
+  await page.click('role=tab[name="Effects"]');
+  await page.click('role=radio[name="Blur"]');
+  await page.waitForFunction(() => !document.body.innerText.includes('Loading effects'), null, { timeout: 30000 });
+  check(!(await page.isVisible('text=Effects could not start')), 'background blur loads and runs');
+  await page.keyboard.press('6');
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: `${OUT}/presenter.png` });
+  check((await page.textContent('.scene-card.active')).includes('Presenter'), 'Presenter scene with background removal');
+  await page.keyboard.press('4');
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: `${OUT}/blur.png` });
+  await page.click('role=radio[name="Off"]');
   await page.keyboard.press('2');
 
   const dl = page.waitForEvent('download', { timeout: 30000 });

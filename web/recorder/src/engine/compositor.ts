@@ -3,7 +3,8 @@
 // and the source of the recording, so what you see is what you get.
 
 import { sceneById, type Box, type CardKind, type Layout } from './scenes';
-import { VideoSource } from './sources';
+import { CameraFx, type Crop } from './effects';
+import { VideoSource, type Drawable } from './sources';
 
 export const W = 1920;
 export const H = 1080;
@@ -28,6 +29,7 @@ interface PxBox {
   rad: number;
   o: number;
   ring: number;
+  cut: number;
 }
 interface State {
   screen: PxBox;
@@ -40,7 +42,7 @@ interface State {
 const toPx = (b: Box): PxBox => {
   const w = b.w * W;
   const h = b.h * H;
-  return { x: b.x * W, y: b.y * H, w, h, rad: b.circle ? Math.min(w, h) / 2 : b.r * W, o: b.o, ring: b.ring ? 1 : 0 };
+  return { x: b.x * W, y: b.y * H, w, h, rad: b.circle ? Math.min(w, h) / 2 : b.r * W, o: b.o, ring: b.ring ? 1 : 0, cut: b.cutout ? 1 : 0 };
 };
 const toState = (l: Layout): State => ({
   screen: toPx(l.screen),
@@ -58,6 +60,7 @@ const lerpBox = (a: PxBox, b: PxBox, g: number, f: number): PxBox => ({
   rad: Math.max(0, lerp(a.rad, b.rad, g)),
   o: lerp(a.o, b.o, f),
   ring: lerp(a.ring, b.ring, f),
+  cut: lerp(a.cut, b.cut, f),
 });
 // Springy "expressive" easing with a little overshoot.
 const easeOutBack = (t: number) => {
@@ -80,6 +83,7 @@ export class Compositor {
   private scratch = document.createElement('canvas');
   readonly screen = new VideoSource();
   readonly camera = new VideoSource();
+  readonly fx = new CameraFx();
   text: SceneText = { title: '', name: '', role: '', problem: '', outro: '', brb: '' };
   cameraOn = true;
   mirrorCamera = false;
@@ -118,7 +122,11 @@ export class Compositor {
   start(): void {
     if (this.worker) return;
     this.worker = new Worker(new URL('./ticker.worker.ts', import.meta.url), { type: 'module' });
-    this.worker.onmessage = () => this.draw(performance.now());
+    // Drop ticks that waited in line (the page was busy) instead of
+    // drawing a backlog, which would freeze a slow computer.
+    this.worker.onmessage = (e: MessageEvent<number>) => {
+      if (Date.now() - e.data < 1000 / FPS) this.draw(performance.now());
+    };
     this.worker.postMessage({ fps: FPS });
   }
 
@@ -163,7 +171,11 @@ export class Compositor {
     (['problem', 'brb', 'outro'] as CardKind[]).forEach((k) => {
       if (s.cards[k] > 0.01) this.drawCard(k, s.cards[k], now);
     });
-    if (s.camera.o > 0.01) this.drawBox(s.camera, (b) => this.drawCamera(b));
+    if (s.camera.o > 0.01) {
+      // Presenter-style cutouts float over the scene with no frame.
+      if (this.to.camera.cut > 0.5) this.drawCutout(s.camera, now);
+      else this.drawBox(s.camera, (b) => this.drawCamera(b, now), this.fx.settings.bg === 'remove');
+    }
     if (s.title > 0.01) this.drawTitle(s.title);
     if (s.lower > 0.01) this.drawLower(s.lower);
 
@@ -186,12 +198,12 @@ export class Compositor {
     }
   }
 
-  private drawBox(b: PxBox, content: (b: PxBox) => void): void {
+  private drawBox(b: PxBox, content: (b: PxBox) => void, transparent = false): void {
     const ctx = this.ctx;
     const fullScreen = b.w >= W - 1 && b.h >= H - 1;
     ctx.save();
     ctx.globalAlpha = b.o;
-    if (!fullScreen) {
+    if (!fullScreen && !transparent) {
       ctx.shadowColor = 'rgba(0,0,0,0.4)';
       ctx.shadowBlur = 48;
       ctx.shadowOffsetY = 16;
@@ -241,22 +253,46 @@ export class Compositor {
     ctx.fillText('Pick a tab, a window or your whole screen', b.x + b.w / 2, b.y + b.h / 2 + 44 * k);
   }
 
-  private drawCamera(b: PxBox): void {
+  /** Camera image (with effects), cropped to cover box `b`. */
+  private paintCamera(b: PxBox, now: number, forceRemove: boolean, anchorBottom = false): boolean {
     const ctx = this.ctx;
-    const f = this.cameraOn ? this.camera.current() : null;
-    if (f) {
-      const r = fit(f.w, f.h, b, 'cover');
-      if (this.mirrorCamera) {
-        ctx.save();
-        ctx.translate(b.x * 2 + b.w, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(f.img, r.x, r.y, r.w, r.h);
-        ctx.restore();
-      } else {
-        ctx.drawImage(f.img, r.x, r.y, r.w, r.h);
-      }
-      return;
+    const raw = this.cameraOn ? this.camera.current() : null;
+    if (!raw) return false;
+    const f = this.fx.process(raw.img as Drawable, raw.w, raw.h, now, forceRemove);
+    const src: Crop = f.crop ?? { sx: 0, sy: 0, sw: f.w, sh: f.h };
+    const boxAspect = b.w / b.h;
+    let sw = src.sw;
+    let sh = src.sh;
+    if (sw / sh > boxAspect) sw = sh * boxAspect;
+    else sh = sw / boxAspect;
+    const sx = src.sx + (src.sw - sw) / 2;
+    const sy = anchorBottom ? src.sy + src.sh - sh : src.sy + (src.sh - sh) / 2;
+    ctx.save();
+    if (this.fx.settings.lightFix) ctx.filter = 'brightness(1.12) saturate(1.08) contrast(1.03)';
+    if (this.mirrorCamera) {
+      ctx.translate(b.x * 2 + b.w, 0);
+      ctx.scale(-1, 1);
     }
+    ctx.drawImage(f.img, sx, sy, sw, sh, b.x, b.y, b.w, b.h);
+    ctx.restore();
+    return true;
+  }
+
+  private drawCutout(b: PxBox, now: number): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = b.o;
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = 40;
+    ctx.shadowOffsetY = 10;
+    const ok = this.paintCamera(b, now, true, true);
+    ctx.restore();
+    if (!ok) this.drawBox({ ...b, rad: 32 }, (bb) => this.drawCamera(bb, now));
+  }
+
+  private drawCamera(b: PxBox, now: number): void {
+    const ctx = this.ctx;
+    if (this.paintCamera(b, now, false)) return;
     const g = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
     g.addColorStop(0, '#4b3d35');
     g.addColorStop(1, '#241d1a');
