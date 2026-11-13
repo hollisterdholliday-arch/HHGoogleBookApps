@@ -3,6 +3,14 @@ import { SCENES, showsScreen, type Box, type Layout } from '../engine/scenes';
 import { DEFAULT_FX, type BgMode, type BgPreset, type FxSettings } from '../engine/effects';
 import { idbGet, idbSet } from '../lib/idb';
 import { MiniPanel, miniSupported, useMiniWindow } from './MiniWindow';
+import { Library } from './Library';
+import { Builder } from './Builder';
+import { BITRATES, DEFAULT_PREFS, Settings, type Prefs } from './Settings';
+import { Welcome } from './Welcome';
+import { applyAccent } from '../lib/theme';
+import { exportPack, importPack } from '../lib/packs';
+import { cssClip, loadCustom, loadMedia, saveCustom, templates, type CustomScene } from '../engine/custom';
+import { captionAvailability, installCaptions, type CaptionAvailability } from '../engine/captions';
 import { addFileTool, forgetTool, linkTool, loadTools, saveTools, toolUrl, type Tool } from '../lib/tools';
 import type { SceneText } from '../engine/compositor';
 import type { DeviceLists } from '../engine/studio';
@@ -61,13 +69,51 @@ const errText = (e: unknown) => (e instanceof DOMException && e.name === 'NotAll
 export function App() {
   const studio = getStudio();
   const [, rerender] = useState(0);
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => store.get('theme', 'dark'));
+  const [prefs, setPrefsState] = useState<Prefs>(() => {
+    const p = store.get<Partial<Prefs>>('prefs', {});
+    return { ...DEFAULT_PREFS, theme: store.get('theme', DEFAULT_PREFS.theme), ...p, brand: { ...DEFAULT_PREFS.brand, ...(p.brand ?? {}) } };
+  });
+  const setPrefs = (p: Prefs) => {
+    setPrefsState(p);
+    store.set('prefs', p);
+  };
+  const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const on = () => setSystemDark(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const theme: 'dark' | 'light' = prefs.theme === 'system' ? (systemDark ? 'dark' : 'light') : prefs.theme;
+  const setTheme = (t: 'dark' | 'light') => setPrefs({ ...prefs, theme: t });
+  const [welcome, setWelcome] = useState<boolean>(() => !store.get('welcomed', false));
+  const [hasLogo, setHasLogo] = useState(false);
+  const [installEvt, setInstallEvt] = useState<(Event & { prompt: () => Promise<void> }) | null>(null);
+  const [installed, setInstalled] = useState(() => matchMedia('(display-mode: standalone), (display-mode: window-controls-overlay)').matches);
+  useEffect(() => {
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      setInstallEvt(e as Event & { prompt: () => Promise<void> });
+    };
+    const onInstalled = () => setInstalled(true);
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
   const [scene, setSceneState] = useState<number>(() => store.get('scene', 2));
   const [text, setText] = useState<SceneText>(() => ({ ...DEFAULT_TEXT, ...store.get('text', {}) }));
   const [mirror, setMirror] = useState<boolean>(() => store.get('mirror', false));
   const [micMuted, setMicMuted] = useState(false);
   const [tab, setTab] = useState<'text' | 'sources' | 'effects' | 'content'>('text');
   const [tools, setTools] = useState<Tool[]>(loadTools);
+  const [view, setView] = useState<'record' | 'library' | 'settings'>('record');
+  const [customs, setCustoms] = useState<CustomScene[]>(loadCustom);
+  const [editing, setEditing] = useState<{ scene: CustomScene; isNew: boolean; back: number } | null>(null);
+  const [captionsOn, setCaptionsOn] = useState<boolean>(() => store.get('captions', false));
+  const [capAvail, setCapAvail] = useState<CaptionAvailability | 'unknown'>('unknown');
   const [activeTool, setActiveTool] = useState<{ tool: Tool; url: string } | null>(null);
   const [linkDraft, setLinkDraft] = useState('');
   const toolHostRef = useRef<HTMLDivElement>(null);
@@ -116,8 +162,32 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    store.set('theme', theme);
-  }, [theme]);
+    const docs = [document, ...(miniDoc.current ? [miniDoc.current] : [])];
+    applyAccent(prefs.accent, theme === 'dark', docs);
+    for (const d of docs) {
+      const st = d.documentElement.style;
+      st.setProperty('--blur', `${Math.round(4 + prefs.glass * 36)}px`);
+      st.setProperty('--glass-a', String(0.9 - prefs.glass * 0.4));
+      d.documentElement.dataset.motion = prefs.motion;
+    }
+    studio.comp.motion = prefs.motion;
+    studio.bitrate = BITRATES[prefs.quality];
+    const micOpts = { echoCancellation: prefs.echo, noiseSuppression: prefs.noise, autoGainControl: prefs.agc };
+    if (JSON.stringify(micOpts) !== JSON.stringify(studio.micOpts)) {
+      studio.micOpts = micOpts;
+      if (studio.micLive) void studio.startMic().catch(() => {});
+    }
+    studio.comp.brand = { ...studio.comp.brand, ...prefs.brand };
+  }, [studio, theme, prefs]);
+  useEffect(() => {
+    idbGet<Blob>('brandLogo').then(async (b) => {
+      if (!b) return;
+      studio.comp.brand.logo = await createImageBitmap(b).catch(() => null);
+      setHasLogo(!!studio.comp.brand.logo);
+    });
+    void document.fonts.load('700 40px "Nunito"');
+  }, [studio]);
+  const miniDoc = useRef<Document | null>(null);
   useEffect(() => {
     studio.comp.text = text;
     store.set('text', text);
@@ -133,6 +203,59 @@ export function App() {
   }, [studio, fx]);
   useEffect(() => saveTools(tools), [tools]);
   useEffect(() => {
+    studio.comp.customs = customs;
+    saveCustom(customs);
+    // Have pictures and video loops ready before a scene needs them.
+    for (const c of customs) {
+      if (c.bg.kind === 'video') void loadMedia(c.bg.media);
+      for (const l of c.layers) if (l.media) void loadMedia(l.media);
+    }
+  }, [studio, customs]);
+  const allScenes = [...SCENES.map((x) => ({ id: x.id, name: x.name })), ...customs.map((c) => ({ id: c.id, name: c.name }))];
+  const sceneName = (id: number) => allScenes.find((x) => x.id === id)?.name ?? '';
+  // Put the live preview back on the recorder screen after the builder.
+  useEffect(() => {
+    if (!editing && view === 'record') stageRef.current?.prepend(studio.comp.canvas);
+  }, [studio, editing, view]);
+  const openBuilder = (c?: CustomScene) => {
+    const id = c?.id ?? Math.max(99, ...customs.map((x) => x.id)) + 1;
+    const scene = c ? structuredClone(c) : { ...templates()[1].make(), id };
+    setEditing({ scene, isNew: !c, back: scene.id === sceneRef.current ? 2 : sceneRef.current });
+  };
+  const closeBuilder = (goTo: number) => {
+    setEditing(null);
+    studio.comp.setScene(goTo);
+    setSceneState(goTo);
+    sceneRef.current = goTo;
+  };
+  const captionLang = navigator.language || 'en-US';
+  // Asked only when needed (turning captions on, or recording with them on):
+  // the check is heavy, so it never runs just because the page opened.
+  const checkCaptions = async () => {
+    const a = await captionAvailability(captionLang);
+    setCapAvail(a);
+    studio.captionsOn = captionsOn && a === 'ready';
+    return a;
+  };
+  useEffect(() => {
+    studio.captionsOn = captionsOn && capAvail === 'ready';
+    studio.captionLang = captionLang;
+    store.set('captions', captionsOn);
+  }, [studio, captionsOn, capAvail, captionLang]);
+  const toggleCaptions = async () => {
+    if (captionsOn) return setCaptionsOn(false);
+    const avail = capAvail === 'unknown' ? await checkCaptions() : capAvail;
+    if (avail === 'unavailable') return say({ msg: 'Live captions need a newer Chrome with on-device speech recognition.' });
+    if (avail === 'downloadable') {
+      say({ msg: 'Downloading on-device speech recognition…' }, 4000);
+      const ok = await installCaptions(captionLang);
+      const a = await captionAvailability(captionLang);
+      setCapAvail(a);
+      if (!ok && a !== 'ready') return say({ msg: 'Chrome could not download speech recognition for captions.' });
+    }
+    setCaptionsOn(true);
+  };
+  useEffect(() => {
     studio.comp.slides.onChange = () => rerender((n) => n + 1);
     studio.comp.fx.onStatus = () => rerender((n) => n + 1);
     idbGet<Blob>('bgImage').then(async (b) => {
@@ -142,12 +265,18 @@ export function App() {
     });
   }, [studio]);
   const mini = useMiniWindow(theme);
+  miniDoc.current = mini.win?.document ?? null;
 
+  const sceneRef = useRef(scene);
+  const nameRef = useRef<(id: number) => string>(() => '');
+  nameRef.current = sceneName;
   const setScene = useCallback(
     (id: number) => {
       studio.comp.setScene(id);
       setSceneState(id);
+      sceneRef.current = id;
       store.set('scene', id);
+      studio.markScene(nameRef.current(id));
     },
     [studio],
   );
@@ -233,6 +362,7 @@ export function App() {
 
   const startRecording = async () => {
     studio.audio.resume();
+    if (captionsOn && capAvail === 'unknown') await checkCaptions();
     const name = fileNameFor(text.title, studio.format.ext);
     let sink: Sink | null = null;
     try {
@@ -247,15 +377,15 @@ export function App() {
       sink = downloadSink(name, studio.format.mime);
     }
     setPhase('countdown');
-    setCount(3);
+    const n = prefs.countdown;
+    setCount(n);
     const s = sink;
     countTimers.current = [
-      window.setTimeout(() => setCount(2), 900),
-      window.setTimeout(() => setCount(1), 1800),
+      ...Array.from({ length: Math.max(0, n - 1) }, (_, i) => window.setTimeout(() => setCount(n - 1 - i), 900 * (i + 1))),
       window.setTimeout(() => {
         setCount(0);
         try {
-          studio.startRecording(s);
+          studio.startRecording(s, nameRef.current(sceneRef.current));
           setPaused(false);
           setElapsed(0);
           setPhase('recording');
@@ -264,7 +394,7 @@ export function App() {
           void s.abort();
           say({ msg: 'Could not start recording in this browser.' });
         }
-      }, 2700),
+      }, 900 * n),
     ];
   };
 
@@ -432,6 +562,13 @@ export function App() {
             <span>{phase === 'countdown' ? 'Starting…' : `${paused ? 'Paused' : 'REC'} ${fmt(elapsed)}`}</span>
           </div>
         )}
+        <div className="view-switch seg" role="tablist" aria-label="View">
+          {(['record', 'library', 'settings'] as const).map((v) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} className={`seg-btn press ${view === v ? 'active' : ''}`} onClick={() => setView(v)} disabled={!!editing}>
+              {{ record: 'Recorder', library: 'Library', settings: 'Settings' }[v]}
+            </button>
+          ))}
+        </div>
         <div className="title-actions">
           <button className="icon-btn press" type="button" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <IconSun /> : <IconMoon />}
@@ -441,7 +578,101 @@ export function App() {
 
       {!supported && <div className="banner">This browser can’t record. Open Recorder in Google Chrome or Microsoft Edge on a computer.</div>}
 
-      <main className="body">
+      {editing && (
+        <Builder
+          studio={studio}
+          initial={editing.scene}
+          isNew={editing.isNew}
+          onCancel={() => closeBuilder(editing.isNew ? editing.back : editing.scene.id)}
+          onSave={(c) => {
+            setCustoms((list) => (list.some((x) => x.id === c.id) ? list.map((x) => (x.id === c.id ? c : x)) : [...list, c]));
+            studio.comp.customs = customs.some((x) => x.id === c.id) ? customs.map((x) => (x.id === c.id ? c : x)) : [...customs, c];
+            closeBuilder(c.id);
+            say({ msg: `Saved “${c.name}”. It’s in your scene list and the mini window.` }, 4000);
+          }}
+          onDelete={(id) => {
+            setCustoms((list) => list.filter((x) => x.id !== id));
+            studio.comp.customs = customs.filter((x) => x.id !== id);
+            closeBuilder(2);
+          }}
+        />
+      )}
+      {!editing && view === 'settings' && (
+        <Settings
+          prefs={prefs}
+          setPrefs={setPrefs}
+          folderName={folder?.name ?? null}
+          onChangeFolder={pickFolder}
+          sceneCount={customs.length}
+          hasLogo={hasLogo}
+          installed={installed}
+          onShowWelcome={() => setWelcome(true)}
+          onLogo={async (f) => {
+            const bmp = await createImageBitmap(f).catch(() => null);
+            if (!bmp) return say({ msg: 'That image could not be opened.' });
+            studio.comp.brand.logo = bmp;
+            setHasLogo(true);
+            setPrefs({ ...prefs, brand: { ...prefs.brand, logoOn: true } });
+            void idbSet('brandLogo', f);
+          }}
+          onExportPack={async () => {
+            const blob = await exportPack(customs, prefs.brand);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'My scenes.recorderpack';
+            a.click();
+            say({ msg: 'Saved “My scenes.recorderpack”. Send it to another teacher to import.' });
+          }}
+          onImportPack={async (f) => {
+            try {
+              const nextId = Math.max(99, ...customs.map((x) => x.id)) + 1;
+              const got = await importPack(f, nextId);
+              for (const c of got.scenes) {
+                if (c.bg.kind === 'video') await loadMedia(c.bg.media);
+                for (const l of c.layers) if (l.media) await loadMedia(l.media);
+              }
+              setCustoms((l) => [...l, ...got.scenes]);
+              if (got.brand && window.confirm('This pack includes a brand kit (colors, font and logo). Use it?')) {
+                setPrefs({ ...prefs, brand: got.brand });
+                if (got.logo) {
+                  await idbSet('brandLogo', got.logo);
+                  studio.comp.brand.logo = await createImageBitmap(got.logo).catch(() => null);
+                  setHasLogo(!!studio.comp.brand.logo);
+                }
+              }
+              say({ msg: `Added ${got.scenes.length} scene${got.scenes.length === 1 ? '' : 's'} from “${f.name}”.` });
+            } catch {
+              say({ msg: 'That file is not a Recorder scene pack.' });
+            }
+          }}
+        />
+      )}
+      {welcome && (
+        <Welcome
+          name={text.name}
+          role={text.role}
+          onNames={(name, role) => setText((t) => ({ ...t, name, role }))}
+          camOk={studio.cameraLive}
+          micOk={studio.micLive}
+          onAllow={async () => {
+            await studio.startCamera().catch(() => {});
+            await studio.startMic().catch(() => {});
+            refreshDevices();
+          }}
+          folderName={folder?.name ?? null}
+          onFolder={pickFolder}
+          canInstall={!!installEvt}
+          installed={installed}
+          onInstall={() => void installEvt?.prompt()}
+          onDone={() => {
+            setWelcome(false);
+            store.set('welcomed', true);
+            setView('record');
+          }}
+        />
+      )}
+      {!editing && view === 'library' && <Library folder={folder} onChooseFolder={pickFolder} say={(m) => say({ msg: m })} />}
+      <main className="body" hidden={view !== 'record' || !!editing}>
         <section className="stage-col" aria-label="Preview">
           <div className="stage-wrap">
             <div className="stage" ref={stageRef}>
@@ -516,6 +747,23 @@ export function App() {
                   </div>
                 </button>
               ))}
+              {customs.map((c) => (
+                <div key={c.id} className="scene-card-wrap">
+                  <button type="button" className={`scene-card press ${c.id === scene ? 'active' : ''}`} aria-pressed={c.id === scene} onClick={() => setScene(c.id)}>
+                    <CustomThumb scene={c} />
+                    <div className="scene-meta">
+                      <span>{c.name}</span>
+                    </div>
+                  </button>
+                  <button type="button" className="edit-scene press" aria-label={`Edit ${c.name}`} title="Edit scene" onClick={() => openBuilder(c)} disabled={phase !== 'idle'}>
+                    ✎
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="scene-card new-scene press" onClick={() => openBuilder()} disabled={phase !== 'idle'}>
+                <span aria-hidden="true">+</span>
+                New scene
+              </button>
             </div>
           </nav>
         </section>
@@ -771,6 +1019,21 @@ export function App() {
               </button>
             )}
           </div>
+          <div className="row">
+            <div className="tile-main">
+              <div className="tile-title">Live captions</div>
+              <div className="note">
+                {capAvail === 'unavailable'
+                  ? 'Needs a newer Chrome with on-device speech recognition.'
+                  : capAvail === 'downloadable'
+                    ? 'Turning on downloads Chrome’s on-device speech model once.'
+                    : 'Written on this computer as you talk, saved next to the video.'}
+              </div>
+            </div>
+            <button className="switch" type="button" role="switch" aria-checked={captionsOn && capAvail !== 'unavailable'} aria-label="Live captions" disabled={capAvail === 'unavailable' || phase !== 'idle'} onClick={toggleCaptions}>
+              <i />
+            </button>
+          </div>
         </aside>
       </main>
 
@@ -778,6 +1041,7 @@ export function App() {
         <MiniPanel
           win={mini.win}
           scene={scene}
+          scenes={allScenes}
           setScene={setScene}
           phase={phase}
           paused={paused}
@@ -829,6 +1093,35 @@ function Thumb({ layout }: { layout: Layout }) {
       <div style={boxStyle(layout.camera, { background: 'linear-gradient(165deg,#6b5546,#2f2622)', boxShadow: layout.camera.ring ? '0 0 0 2px #fff' : 'none' })} />
       {layout.title && <div style={{ left: '8%', bottom: '14%', width: '50%', height: '10%', borderRadius: 3, background: 'rgba(255,255,255,.9)' }} />}
       {layout.lower && <div style={{ left: '5%', bottom: '8%', width: '40%', height: '14%', borderRadius: 4, background: 'rgba(20,22,40,.75)' }} />}
+    </div>
+  );
+}
+
+// Thumbnail of a custom scene: its background and layers as simple boxes.
+const BG_CSS = (c: CustomScene) =>
+  c.bg.kind === 'color' ? c.bg.value : c.bg.kind === 'gradient' ? `linear-gradient(135deg,${c.bg.from},${c.bg.to})` : c.bg.kind === 'aurora' ? 'linear-gradient(135deg,#5b67d8,#c45bd8 60%,#3fb8c9)' : '#222';
+const LAYER_CSS: Record<string, string> = { camera: 'linear-gradient(165deg,#6b5546,#2f2622)', screen: '#eef0fb', screen2: '#ffffff', tool: '#e3f4ea', image: '#ffd8a8', clip: '#3b1f4d', timer: '#fff1e6' };
+function CustomThumb({ scene }: { scene: CustomScene }) {
+  return (
+    <div className="thumb" aria-hidden="true" style={{ background: BG_CSS(scene) }}>
+      {scene.layers.map((l) =>
+        l.hidden ? null : (
+          <div
+            key={l.id}
+            style={{
+              left: `${l.x * 100}%`,
+              top: `${l.y * 100}%`,
+              width: `${l.w * 100}%`,
+              height: `${l.h * 100}%`,
+              opacity: l.opacity,
+              clipPath: l.type === 'text' || (l.type === 'camera' && l.cutout) ? undefined : cssClip(l.shape, l.round),
+              background: l.type === 'text' ? 'transparent' : l.type === 'shape' ? l.fill : LAYER_CSS[l.type],
+            }}
+          >
+            {l.type === 'text' && <div style={{ height: '40%', marginTop: '10%', borderRadius: 2, background: l.color ?? '#fff', opacity: 0.85 }} />}
+          </div>
+        ),
+      )}
     </div>
   );
 }

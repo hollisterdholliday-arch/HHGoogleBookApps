@@ -2,7 +2,8 @@
 // animated transitions between scenes. The same canvas is the live preview
 // and the source of the recording, so what you see is what you get.
 
-import { sceneById, type Box, type CardKind, type Layout } from './scenes';
+import { customLayout, sceneById, type Box, type CardKind, type Layout } from './scenes';
+import { fillText, mediaNow, SHAPE_POINTS, type CustomScene, type Layer, type Shape } from './custom';
 import { CameraFx, type Crop } from './effects';
 import { Slides } from './slides';
 import { VideoSource, type Drawable } from './sources';
@@ -12,6 +13,26 @@ export const H = 1080;
 export const FPS = 30;
 const FONT = '"Roboto Flex", "Google Sans", system-ui, sans-serif';
 const TRANSITION_MS = 620;
+
+export interface Brand {
+  bar: string;
+  accent: string;
+  text: string;
+  font: 'modern' | 'rounded' | 'serif';
+  logo: ImageBitmap | null;
+  logoOn: boolean;
+}
+const BRAND_FONTS: Record<string, string> = {
+  modern: FONT,
+  rounded: '"Nunito", "Roboto Flex", system-ui, sans-serif',
+  serif: '"Fraunces", Georgia, serif',
+};
+const hexAlpha = (hex: string, a: number) => {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+};
 
 export interface SceneText {
   title: string;
@@ -31,6 +52,10 @@ interface PxBox {
   o: number;
   ring: number;
   cut: number;
+  shape: Shape | null;
+  bw: number;
+  bc: string;
+  shadow: boolean;
 }
 interface State {
   screen: PxBox;
@@ -45,7 +70,30 @@ interface State {
 const toPx = (b: Box): PxBox => {
   const w = b.w * W;
   const h = b.h * H;
-  return { x: b.x * W, y: b.y * H, w, h, rad: b.circle ? Math.min(w, h) / 2 : b.r * W, o: b.o, ring: b.ring ? 1 : 0, cut: b.cutout ? 1 : 0 };
+  const half = Math.min(w, h) / 2;
+  const rad = b.shape
+    ? b.shape === 'rect'
+      ? 0
+      : b.shape === 'rounded'
+        ? (b.round ?? 0.2) * half
+        : half
+    : b.circle
+      ? half
+      : b.r * W;
+  return {
+    x: b.x * W,
+    y: b.y * H,
+    w,
+    h,
+    rad,
+    o: b.o,
+    ring: b.ring ? 1 : 0,
+    cut: b.cutout ? 1 : 0,
+    shape: b.shape ?? (b.circle ? 'circle' : null),
+    bw: b.border ?? (b.ring ? 7 : 0),
+    bc: b.borderColor ?? 'rgba(255,255,255,0.92)',
+    shadow: !b.noShadow,
+  };
 };
 const toState = (l: Layout): State => ({
   screen: toPx(l.screen),
@@ -66,6 +114,10 @@ const lerpBox = (a: PxBox, b: PxBox, g: number, f: number): PxBox => ({
   o: lerp(a.o, b.o, f),
   ring: lerp(a.ring, b.ring, f),
   cut: lerp(a.cut, b.cut, f),
+  shape: f < 0.5 && a.o > 0.01 ? a.shape : b.shape,
+  bw: lerp(a.bw, b.bw, f),
+  bc: b.ring ? b.bc : a.bc,
+  shadow: b.shadow,
 });
 // Springy "expressive" easing with a little overshoot.
 const easeOutBack = (t: number) => {
@@ -96,7 +148,18 @@ export class Compositor {
   cameraOn = true;
   mirrorCamera = false;
   ambient: HTMLCanvasElement | null = null;
+  /** Brand kit: name bar colors, font and an optional logo on every scene. */
+  brand: Brand = { bar: '#141628', accent: '#bac3ff', text: '#ffffff', font: 'modern', logo: null, logoOn: false };
+  /** 'reduced' switches scenes without motion. */
+  motion: 'expressive' | 'standard' | 'reduced' = 'expressive';
+  private get brandFont(): string {
+    return BRAND_FONTS[this.brand.font] ?? FONT;
+  }
 
+  /** Scenes made in the scene builder. */
+  customs: CustomScene[] = [];
+  private fromCustom: CustomScene | null = null;
+  private toCustom: CustomScene | null = null;
   private from: State;
   private to: State;
   private t0 = 0;
@@ -121,10 +184,22 @@ export class Compositor {
     if (id === this.sceneId) return;
     const now = performance.now();
     this.from = this.stateAt(now);
-    this.to = toState(sceneById(id).layout);
+    this.fromCustom = this.toCustom;
+    const custom = this.customs.find((c) => c.id === id) ?? null;
+    this.toCustom = custom;
+    this.to = toState(custom ? customLayout(custom) : sceneById(id).layout);
     this.t0 = now;
     this.sceneId = id;
     this.sceneStart = now;
+  }
+
+  /** Show a scene being edited in the builder, updating instantly. */
+  previewCustom(c: CustomScene): void {
+    const first = this.sceneId !== c.id;
+    if (first) this.setScene(c.id);
+    this.toCustom = c;
+    this.to = toState(customLayout(c));
+    if (!first) this.from = this.to;
   }
 
   start(): void {
@@ -149,9 +224,9 @@ export class Compositor {
   }
 
   private stateAt(now: number): State {
-    const t = Math.min(1, (now - this.t0) / TRANSITION_MS);
+    const t = this.motion === 'reduced' ? 1 : Math.min(1, (now - this.t0) / TRANSITION_MS);
     if (t >= 1) return this.to;
-    const g = easeOutBack(t);
+    const g = this.motion === 'standard' ? easeOutCubic(t) : easeOutBack(t);
     const f = easeOutCubic(t);
     const a = this.from;
     const b = this.to;
@@ -177,19 +252,23 @@ export class Compositor {
     ctx.fillStyle = '#0d0d10';
     ctx.fillRect(0, 0, W, H);
 
-    if (s.screen.o > 0.01) this.drawBox(s.screen, (b) => this.drawScreen(b));
-    if (s.screen2.o > 0.01) this.drawBox(s.screen2, (b) => this.drawSource(b, this.screen2.current(), 'Share a second window', 'Use Sources › Second screen'));
-    if (s.tool.o > 0.01) this.drawBox(s.tool, (b) => this.drawSource(b, this.tool.current(), 'Open a teaching tool', 'Content › Teaching tools'));
-    (['problem', 'brb', 'outro'] as CardKind[]).forEach((k) => {
-      if (s.cards[k] > 0.01) this.drawCard(k, s.cards[k], now);
-    });
-    if (s.camera.o > 0.01) {
-      // Presenter-style cutouts float over the scene with no frame.
-      if (this.to.camera.cut > 0.5) this.drawCutout(s.camera, now);
-      else this.drawBox(s.camera, (b) => this.drawCamera(b, now), this.fx.settings.bg === 'remove');
+    const fade = this.motion === 'reduced' ? 1 : easeOutCubic(Math.min(1, (now - this.t0) / TRANSITION_MS));
+    if (this.fromCustom && this.fromCustom !== this.toCustom && fade < 1) this.drawCustomExtras(this.fromCustom, s, now, 1 - fade, false);
+    if (this.toCustom) {
+      this.drawCustomExtras(this.toCustom, s, now, fade, true);
+    } else {
+      this.drawSlots(s, now);
     }
     if (s.title > 0.01) this.drawTitle(s.title);
     if (s.lower > 0.01) this.drawLower(s.lower);
+    const logo = this.brand.logo;
+    if (this.brand.logoOn && logo) {
+      const h = 110;
+      const w = (logo.width / logo.height) * h;
+      ctx.globalAlpha = 0.95;
+      ctx.drawImage(logo, W - w - 44, 40, w, h);
+      ctx.globalAlpha = 1;
+    }
 
     this.frameNo++;
     if (this.ambient && this.frameNo % 4 === 0) {
@@ -198,12 +277,39 @@ export class Compositor {
     }
   }
 
+  private drawSlot(kind: 'screen' | 'screen2' | 'tool' | 'camera', s: State, now: number): void {
+    const b = s[kind];
+    if (b.o <= 0.01) return;
+    if (kind === 'screen') this.drawBox(b, (bb) => this.drawScreen(bb));
+    else if (kind === 'screen2') this.drawBox(b, (bb) => this.drawSource(bb, this.screen2.current(), 'Share a second window', 'Use Sources › Second screen'));
+    else if (kind === 'tool') this.drawBox(b, (bb) => this.drawSource(bb, this.tool.current(), 'Open a teaching tool', 'Content › Teaching tools'));
+    else if (this.to.camera.cut > 0.5) this.drawCutout(b, now);
+    else this.drawBox(b, (bb) => this.drawCamera(bb, now), this.fx.settings.bg === 'remove');
+  }
+
+  private drawSlots(s: State, now: number): void {
+    this.drawSlot('screen', s, now);
+    if (s.screen2.o > 0.01) this.drawBox(s.screen2, (b) => this.drawSource(b, this.screen2.current(), 'Share a second window', 'Use Sources › Second screen'));
+    if (s.tool.o > 0.01) this.drawBox(s.tool, (b) => this.drawSource(b, this.tool.current(), 'Open a teaching tool', 'Content › Teaching tools'));
+    (['problem', 'brb', 'outro'] as CardKind[]).forEach((k) => {
+      if (s.cards[k] > 0.01) this.drawCard(k, s.cards[k], now);
+    });
+    // Presenter-style cutouts float over the scene with no frame.
+    this.drawSlot('camera', s, now);
+  }
+
   // ---------- boxes ----------
 
   private path(b: PxBox): void {
     const ctx = this.ctx;
     ctx.beginPath();
-    if (b.rad >= Math.min(b.w, b.h) / 2 - 0.5) {
+    const pts = b.shape ? SHAPE_POINTS[b.shape] : undefined;
+    if (pts) {
+      pts.forEach(([px, py], i) => (i ? ctx.lineTo(b.x + px * b.w, b.y + py * b.h) : ctx.moveTo(b.x + px * b.w, b.y + py * b.h)));
+      ctx.closePath();
+    } else if (b.shape === 'pill' || b.shape === 'rect' || b.shape === 'rounded') {
+      ctx.roundRect(b.x, b.y, b.w, b.h, Math.min(b.rad, Math.min(b.w, b.h) / 2));
+    } else if (b.shape === 'circle' || b.rad >= Math.min(b.w, b.h) / 2 - 0.5) {
       ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
     } else {
       ctx.roundRect(b.x, b.y, b.w, b.h, b.rad);
@@ -215,7 +321,7 @@ export class Compositor {
     const fullScreen = b.w >= W - 1 && b.h >= H - 1;
     ctx.save();
     ctx.globalAlpha = b.o;
-    if (!fullScreen && !transparent) {
+    if (!fullScreen && !transparent && b.shadow) {
       ctx.shadowColor = 'rgba(0,0,0,0.4)';
       ctx.shadowBlur = 48;
       ctx.shadowOffsetY = 16;
@@ -228,12 +334,12 @@ export class Compositor {
     ctx.clip();
     content(b);
     ctx.restore();
-    if (b.ring > 0.01) {
+    if (b.ring > 0.01 && b.bw > 0.5) {
       ctx.save();
       ctx.globalAlpha = b.o * b.ring;
       this.path(b);
-      ctx.lineWidth = 7;
-      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+      ctx.lineWidth = b.bw;
+      ctx.strokeStyle = b.bc;
       ctx.stroke();
       ctx.restore();
     }
@@ -325,6 +431,147 @@ export class Compositor {
     ctx.textBaseline = 'middle';
     ctx.font = `800 ${Math.round(d * 0.42)}px ${FONT}`;
     ctx.fillText(initials(this.text.name), b.x + b.w / 2, b.y + b.h / 2 + d * 0.02);
+  }
+
+  // ---------- custom scenes ----------
+
+  /** Background and non-video layers of a custom scene, in layer order. */
+  private drawCustomExtras(c: CustomScene, s: State, now: number, alpha: number, withSlots: boolean): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    this.drawBackground(c, now);
+    ctx.restore();
+    const slots = new Set<string>();
+    for (const l of c.layers) {
+      const isSlot = l.type === 'camera' || l.type === 'screen' || l.type === 'screen2' || l.type === 'tool';
+      if (isSlot) {
+        // Only the first layer of each kind is live video.
+        if (withSlots && !slots.has(l.type)) this.drawSlot(l.type as 'camera', s, now);
+        slots.add(l.type);
+        continue;
+      }
+      if (l.hidden) continue;
+      this.drawLayer(l, now, alpha * l.opacity);
+    }
+  }
+
+  private drawBackground(c: CustomScene, now: number): void {
+    const ctx = this.ctx;
+    const bg = c.bg;
+    if (bg.kind === 'color') {
+      ctx.fillStyle = bg.value;
+      ctx.fillRect(0, 0, W, H);
+    } else if (bg.kind === 'gradient') {
+      const g = ctx.createLinearGradient(0, 0, W, H);
+      g.addColorStop(0, bg.from);
+      g.addColorStop(1, bg.to);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    } else if (bg.kind === 'aurora') {
+      // A slow, looping glow.
+      ctx.fillStyle = '#0f1230';
+      ctx.fillRect(0, 0, W, H);
+      const t = now / 1000;
+      const blob = (cx: number, cy: number, r: number, color: string) => {
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, color);
+        g.addColorStop(1, 'rgba(15,18,48,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      };
+      blob(W * (0.25 + 0.12 * Math.sin(t * 0.21)), H * (0.3 + 0.15 * Math.cos(t * 0.17)), W * 0.45, 'rgba(91,103,216,0.85)');
+      blob(W * (0.75 + 0.1 * Math.cos(t * 0.19)), H * (0.45 + 0.18 * Math.sin(t * 0.23)), W * 0.42, 'rgba(196,91,216,0.7)');
+      blob(W * (0.5 + 0.15 * Math.sin(t * 0.13)), H * (0.95 + 0.1 * Math.cos(t * 0.29)), W * 0.4, 'rgba(63,184,201,0.65)');
+    } else {
+      const v = mediaNow(bg.media);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      if (v) this.drawMedia(v, { x: 0, y: 0, w: W, h: H });
+    }
+  }
+
+  private drawMedia(m: ImageBitmap | HTMLVideoElement, b: { x: number; y: number; w: number; h: number }): void {
+    const sw = m instanceof HTMLVideoElement ? m.videoWidth : m.width;
+    const sh = m instanceof HTMLVideoElement ? m.videoHeight : m.height;
+    if (!sw || !sh) return;
+    const s = Math.max(b.w / sw, b.h / sh);
+    this.ctx.drawImage(m, b.x + (b.w - sw * s) / 2, b.y + (b.h - sh * s) / 2, sw * s, sh * s);
+  }
+
+  private drawLayer(l: Layer, now: number, alpha: number): void {
+    const ctx = this.ctx;
+    const box = toPx({ x: l.x, y: l.y, w: l.w, h: l.h, r: 0, o: alpha, shape: l.shape, round: l.round, border: l.border, borderColor: l.borderColor, noShadow: !l.shadow, ring: l.border > 0 });
+    if (l.type === 'text') {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      const size = l.fontSize ?? 64;
+      ctx.font = `${l.weight ?? 800} ${size}px ${FONT}`;
+      const lines = wrap(ctx, fillText(l.text ?? '', this.text), box.w - (l.pill ? size : 0));
+      const lh = size * 1.12;
+      const blockH = lines.length * lh;
+      const widest = Math.max(...lines.map((ln) => ctx.measureText(ln).width), 1);
+      const align = l.align ?? 'left';
+      const x = align === 'center' ? box.x + box.w / 2 : align === 'right' ? box.x + box.w : box.x;
+      if (l.pill) {
+        const pw = widest + size;
+        const px = align === 'center' ? x - pw / 2 : align === 'right' ? x - pw : x;
+        ctx.fillStyle = 'rgba(20,22,40,0.62)';
+        ctx.beginPath();
+        ctx.roundRect(px, box.y, pw, blockH + size * 0.5, size * 0.45);
+        ctx.fill();
+      }
+      ctx.fillStyle = l.color ?? '#ffffff';
+      ctx.textAlign = align;
+      ctx.textBaseline = 'top';
+      if (l.shadow) {
+        ctx.shadowColor = 'rgba(0,0,0,0.4)';
+        ctx.shadowBlur = size * 0.3;
+      }
+      const inset = l.pill ? (align === 'left' ? size / 2 : align === 'right' ? -size / 2 : 0) : 0;
+      lines.forEach((ln, i) => ctx.fillText(ln, x + inset, box.y + (l.pill ? size * 0.25 : 0) + i * lh));
+      ctx.restore();
+      return;
+    }
+    this.drawBox(box, (b) => {
+      if (l.type === 'image' || l.type === 'clip') {
+        const m = mediaNow(l.media);
+        ctx.fillStyle = l.fill ?? '#2b2f55';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        if (m) this.drawMedia(m, b);
+        else {
+          ctx.fillStyle = 'rgba(255,255,255,0.7)';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.font = `700 ${Math.max(16, Math.round(b.h * 0.12))}px ${FONT}`;
+          ctx.fillText(l.type === 'image' ? 'Add a picture' : 'Add a video', b.x + b.w / 2, b.y + b.h / 2);
+        }
+      } else if (l.type === 'shape') {
+        ctx.fillStyle = l.fill ?? '#4a55a8';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+      } else if (l.type === 'timer') {
+        ctx.fillStyle = l.fill ?? '#fff1e6';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        const left = Math.max(0, 60 - Math.floor((now - this.sceneStart) / 1000));
+        const cx = b.x + b.w / 2;
+        const cy = b.y + b.h / 2;
+        const r = Math.min(b.w, b.h) * 0.36;
+        ctx.lineWidth = r * 0.22;
+        ctx.strokeStyle = 'rgba(242,155,82,0.3)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = '#f29b52';
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * left) / 60);
+        ctx.stroke();
+        ctx.fillStyle = '#2b1300';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `800 ${Math.round(r * 0.55)}px ${FONT}`;
+        ctx.fillText(`${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`, cx, cy + 2);
+      }
+    });
   }
 
   // ---------- cards ----------
@@ -443,9 +690,9 @@ export class Compositor {
     const ctx = this.ctx;
     const t = this.text;
     ctx.save();
-    ctx.font = `750 46px ${FONT}`;
+    ctx.font = `750 46px ${this.brandFont}`;
     const nameW = ctx.measureText(t.name).width;
-    ctx.font = `500 29px ${FONT}`;
+    ctx.font = `500 29px ${this.brandFont}`;
     const roleW = ctx.measureText(t.role).width;
     const w = Math.min(W * 0.7, Math.max(nameW, roleW) + 120);
     const h = 130;
@@ -465,19 +712,19 @@ export class Compositor {
     ctx.filter = 'blur(22px)';
     ctx.drawImage(sc, x - 20, y - 20, w + 40, h + 40);
     ctx.filter = 'none';
-    ctx.fillStyle = 'rgba(20,22,40,0.55)';
+    ctx.fillStyle = hexAlpha(this.brand.bar, 0.72);
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#bac3ff';
+    ctx.fillStyle = this.brand.accent;
     ctx.beginPath();
     ctx.roundRect(x + 28, y + 26, 13, h - 52, 7);
     ctx.fill();
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `750 46px ${FONT}`;
+    ctx.fillStyle = this.brand.text;
+    ctx.font = `750 46px ${this.brandFont}`;
     ctx.fillText(t.name, x + 66, y + 66);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = `500 29px ${FONT}`;
+    ctx.fillStyle = hexAlpha(this.brand.text, 0.85);
+    ctx.font = `500 29px ${this.brandFont}`;
     ctx.fillText(t.role, x + 66, y + 104);
     ctx.restore();
   }

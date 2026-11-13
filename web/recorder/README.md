@@ -12,22 +12,28 @@ address bar. Allow the camera and microphone, click **Share screen**, pick
 your scenes and press **Record**. The first time you record, choose the folder
 your videos should be saved to.
 
-What it does today:
+What it does:
 
-- **11 scenes**, switched live with springy transitions: Welcome, Lesson,
-  Side by side, Just me, Screen only, Presenter, Tool + me, Two screens,
-  Try this (with a live 1-minute timer), Be right back, Outro.
-- **Screen, tab or window sharing** (with its sound), plus a second shared
-  window for Two screens.
-- **Camera effects**: background blur, replace (presets or your photo),
-  remove; auto-framing; light fix.
-- **PDF slides** (PowerPoint / Google Slides / Keynote saved as PDF).
-- **Teaching tools**: your HTML files and links run inside the recorder and
-  are recorded live (choose “This tab” when Chrome asks).
-- **Mini window** that floats above other apps for switching scenes,
-  flipping slides and stopping.
-- Records **1080p MP4** straight into the folder you pick. Works offline once
-  installed.
+- **11 built-in scenes**, switched live with springy transitions: Welcome,
+  Lesson, Side by side, Just me, Screen only, Presenter, Tool + me, Two
+  screens, Try this (live 1-minute timer), Be right back, Outro.
+- **Scene builder**: your own scenes with camera, screens, teaching tool,
+  text (with {title}/{name}/{role}/{date}), pictures, looping videos,
+  shapes and timers; eight outline shapes including Expressive cookie,
+  clover, burst and arch; looping-video or animated backgrounds; layers
+  behind or in front of you. The preview is the real recorder.
+- **Screen, tab or window sharing** (with sound) plus a second window.
+- **Camera effects**: blur, replace, remove; auto-framing; light fix.
+- **PDF slides** and **teaching tools** (your HTML files and links, live).
+- **Mini window** that floats above other apps.
+- **Library**: thumbnails, player, chapters from scene switches, lossless
+  trim, rename, delete, captions.
+- **Live captions** (Chrome's on-device speech) saved as .vtt and .srt.
+- **Settings**: quality, countdown, audio clean-up, theme, accent color
+  (Material You), glass, motion, **brand kit** (name bar colors, font,
+  logo), **scene packs** to share with other teachers.
+- **Welcome tour** for first-time users. Records **1080p MP4** straight
+  into the folder you pick. Installs as an app and works offline.
 
 Shortcuts (while the recorder or its mini window is in front):
 

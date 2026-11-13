@@ -4,7 +4,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { SCENES } from '../engine/scenes';
 import { IconPause, IconPlay } from './icons';
 
 interface DocumentPiP {
@@ -42,6 +41,7 @@ export function useMiniWindow(theme: string) {
 export function MiniPanel(props: {
   win: Window;
   scene: number;
+  scenes: { id: number; name: string }[];
   setScene: (id: number) => void;
   phase: 'idle' | 'countdown' | 'recording';
   paused: boolean;
@@ -51,9 +51,9 @@ export function MiniPanel(props: {
   onPause: () => void;
   slides: { page: number; pages: number; next: () => void; prev: () => void } | null;
 }) {
-  const { win, scene, setScene, phase, paused, elapsed, count, onRecord, onPause, slides } = props;
+  const { win, scene, scenes, setScene, phase, paused, elapsed, count, onRecord, onPause, slides } = props;
   const live = phase === 'recording';
-  const current = SCENES.find((s) => s.id === scene);
+  const current = scenes.find((s) => s.id === scene);
   const status = phase === 'countdown' ? `Starting in ${count}…` : live ? `${paused ? 'Paused' : 'Recording'} · ${elapsed}` : 'Not recording';
   return createPortal(
     <div className="mini">
@@ -87,9 +87,9 @@ export function MiniPanel(props: {
         </div>
       )}
       <div className="mini-grid">
-        {SCENES.map((s) => (
+        {scenes.map((s, i) => (
           <button key={s.id} type="button" className={`mini-scene press ${s.id === scene ? 'active' : ''}`} aria-pressed={s.id === scene} onClick={() => setScene(s.id)} title={s.name}>
-            <b>{s.id}</b>
+            <b>{s.id < 100 ? s.id : `★${i - scenes.findIndex((x) => x.id >= 100) + 1}`}</b>
             <span>{s.name}</span>
           </button>
         ))}

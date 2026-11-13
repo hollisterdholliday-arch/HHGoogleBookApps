@@ -4,6 +4,7 @@
 import { AudioMixer } from './audio';
 import { Compositor } from './compositor';
 import { pickMimeType, Recording, type SavedFile, type Sink } from './recorder';
+import { LiveCaptions, toSrt, toVtt } from './captions';
 
 export interface DeviceLists {
   cameras: MediaDeviceInfo[];
@@ -15,6 +16,8 @@ export class Studio {
   readonly audio = new AudioMixer();
   readonly format = pickMimeType();
   recording: Recording | null = null;
+  /** Scene switches during the current recording, for chapters. */
+  chapters: { t: number; scene: string }[] = [];
   cameraId = '';
   micId = '';
   screenLabel = '';
@@ -152,9 +155,7 @@ export class Studio {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        ...this.micOpts,
       },
     });
     this.micId = stream.getAudioTracks()[0]?.getSettings().deviceId ?? deviceId;
@@ -175,11 +176,34 @@ export class Studio {
     };
   }
 
-  startRecording(sink: Sink): void {
+  markScene(name: string): void {
+    if (!this.recording) return;
+    const t = Math.round(this.recording.elapsed() * 10) / 10;
+    const last = this.chapters.at(-1);
+    if (last && t - last.t < 1) last.scene = name; // quick flicks count once
+    else this.chapters.push({ t, scene: name });
+  }
+
+  /** Recording quality (bits per second) and mic clean-up, from Settings. */
+  bitrate = 8_000_000;
+  micOpts = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+
+  /** Live on-device captions while recording (set from settings). */
+  captionsOn = false;
+  captionLang = 'en-US';
+  private captions: LiveCaptions | null = null;
+
+  startRecording(sink: Sink, firstScene: string): void {
     const video = this.comp.captureStream().getVideoTracks()[0];
     const stream = new MediaStream([video, this.audio.track]);
-    this.recording = new Recording(stream, this.format.mime, sink);
-    this.recording.start();
+    const rec = new Recording(stream, this.format.mime, sink, this.bitrate);
+    this.recording = rec;
+    this.chapters = [{ t: 0, scene: firstScene }];
+    rec.start();
+    if (this.captionsOn) {
+      this.captions = new LiveCaptions(() => rec.elapsed(), () => rec.paused, this.captionLang);
+      this.captions.start();
+    }
     this.onChange();
   }
 
@@ -187,7 +211,19 @@ export class Studio {
     const r = this.recording;
     if (!r) return null;
     this.recording = null;
+    const duration = r.elapsed();
+    const cues = this.captions?.stop() ?? [];
+    this.captions = null;
     this.onChange();
-    return r.stop();
+    const saved = await r.stop();
+    // Companion files: chapters for the Library, captions for Classroom/YouTube.
+    await saved
+      .saveSidecar('json', JSON.stringify({ version: 1, duration, chapters: this.chapters, captions: cues.length > 0 }, null, 2))
+      .catch(() => {});
+    if (cues.length) {
+      await saved.saveSidecar('vtt', toVtt(cues)).catch(() => {});
+      await saved.saveSidecar('srt', toSrt(cues)).catch(() => {});
+    }
+    return saved;
   }
 }

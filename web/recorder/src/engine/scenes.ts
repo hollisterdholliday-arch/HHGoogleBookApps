@@ -1,6 +1,8 @@
 // Scene layouts. Every box is in stage fractions (0..1 of width / height),
 // so the same numbers drive the 1920x1080 recording and the DOM thumbnails.
 
+import type { CustomScene, Shape } from './custom';
+
 export interface Box {
   x: number;
   y: number;
@@ -15,6 +17,12 @@ export interface Box {
   ring?: boolean;
   /** Camera only: background removed, no frame, person floats over the scene. */
   cutout?: boolean;
+  /** Custom scenes: outline shape, roundness (0..1), border and shadow. */
+  shape?: Shape;
+  round?: number;
+  border?: number;
+  borderColor?: string;
+  noShadow?: boolean;
 }
 
 export type CardKind = 'problem' | 'brb' | 'outro';
@@ -89,3 +97,36 @@ export const sceneById = (id: number): SceneDef => SCENES.find((s) => s.id === i
 
 /** Scenes that show the shared screen. */
 export const showsScreen = (id: number): boolean => sceneById(id).layout.screen.o > 0;
+
+/** The camera/screen/tool boxes of a custom scene, so switching to and from
+ * it animates like any other scene. Other layers are drawn separately. */
+export function customLayout(c: CustomScene): Layout {
+  const slot = (type: string, fallback: Box): Box => {
+    const l = c.layers.find((x) => x.type === type);
+    if (!l) return off(fallback);
+    return {
+      x: l.x,
+      y: l.y,
+      w: l.w,
+      h: l.h,
+      r: 0,
+      o: l.hidden ? 0 : l.opacity,
+      shape: l.shape,
+      round: l.round,
+      border: l.border,
+      borderColor: l.borderColor,
+      noShadow: !l.shadow,
+      cutout: type === 'camera' && !!l.cutout,
+      ring: l.border > 0,
+    };
+  };
+  return {
+    screen: slot('screen', FULL),
+    screen2: slot('screen2', RIGHT_HALF),
+    tool: slot('tool', FULL),
+    camera: slot('camera', BUBBLE),
+    card: null,
+    title: false,
+    lower: false,
+  };
+}

@@ -11,6 +11,8 @@ export interface SavedFile {
   name: string;
   where: string;
   open: () => Promise<string>;
+  /** Save a companion file (captions, chapters) next to the video. */
+  saveSidecar: (ext: string, text: string) => Promise<void>;
 }
 
 const TYPES = [
@@ -39,12 +41,14 @@ export class Recording {
   private pausedTotal = 0;
   error: unknown = null;
 
-  constructor(stream: MediaStream, mime: string, private sink: Sink) {
+  constructor(stream: MediaStream, mime: string, private sink: Sink, videoBitsPerSecond = 8_000_000) {
     this.rec = new MediaRecorder(stream, {
       mimeType: mime || undefined,
-      videoBitsPerSecond: 8_000_000,
+      videoBitsPerSecond,
       audioBitsPerSecond: 160_000,
-    });
+      // A keyframe every 2 s lets the Library trim within 2 s of any point.
+      videoKeyFrameIntervalDuration: 2000,
+    } as MediaRecorderOptions & { videoKeyFrameIntervalDuration?: number });
     this.rec.ondataavailable = (e) => {
       if (e.data.size) this.queue = this.queue.then(() => this.sink.write(e.data)).catch((err) => void (this.error = err));
     };
