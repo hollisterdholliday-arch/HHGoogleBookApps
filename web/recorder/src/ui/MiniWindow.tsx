@@ -89,7 +89,7 @@ export function MiniPanel(props: {
       <div className="mini-grid">
         {scenes.map((s, i) => (
           <button key={s.id} type="button" className={`mini-scene press ${s.id === scene ? 'active' : ''}`} aria-pressed={s.id === scene} onClick={() => setScene(s.id)} title={s.name}>
-            <b>{s.id < 100 ? s.id : `★${i - scenes.findIndex((x) => x.id >= 100) + 1}`}</b>
+            <b>{i + 1}</b>
             <span>{s.name}</span>
           </button>
         ))}

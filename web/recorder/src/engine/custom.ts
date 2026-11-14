@@ -229,3 +229,16 @@ export const fillText = (t: string, v: { title: string; name: string; role: stri
     .replace(/\{name\}/g, v.name)
     .replace(/\{role\}/g, v.role)
     .replace(/\{date\}/g, new Date().toLocaleDateString([], { month: 'short', day: 'numeric' }));
+
+/** The one example everyone starts with: your screen, with you in a circle. */
+export function exampleScene(id: number): CustomScene {
+  return {
+    id,
+    name: 'Example: screen + camera',
+    bg: { kind: 'color', value: '#0d0d10' },
+    layers: [
+      { ...newLayer('screen'), x: 0, y: 0, w: 1, h: 1, shape: 'rect', shadow: false },
+      { ...newLayer('camera'), x: 0.78, y: 0.62, w: 0.185, h: (0.185 * 16) / 9, shape: 'circle', border: 7, borderColor: '#ffffff' },
+    ],
+  };
+}

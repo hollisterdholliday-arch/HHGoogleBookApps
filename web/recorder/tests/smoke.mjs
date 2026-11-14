@@ -65,6 +65,9 @@ try {
     try {
       if (!sessionStorage.getItem('seen')) {
         localStorage.setItem('recorder.welcomed', 'true'); // tour is tested later
+        // This run exercises the ready-made scenes; a fresh start is checked at the end.
+        localStorage.setItem('recorder.prefs', JSON.stringify({ showBuiltIns: true }));
+        localStorage.setItem('recorder.exampleSeeded', 'true');
         sessionStorage.setItem('seen', '1');
       }
     } catch {
@@ -316,6 +319,18 @@ try {
     return null;
   });
   check(!!trimmed && trimmed.w === 1920 && trimmed.d > 1 && trimmed.d < saved.d, `trimmed copy plays (${trimmed?.d?.toFixed(1)} s of ${saved.d.toFixed(1)} s)`);
+  // A fresh start shows one example scene, not the ready-made ones.
+  const fresh = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await fresh.grantPermissions(['camera', 'microphone']);
+  const fp = await fresh.newPage();
+  await fp.addInitScript(() => localStorage.setItem('recorder.welcomed', 'true'));
+  await fp.goto(`http://localhost:${PORT}/`);
+  await fp.waitForSelector('.scene-card-wrap');
+  const cards = await fp.$$eval('.strip .scene-card:not(.new-scene)', (els) => els.map((e) => e.textContent));
+  check(cards.length === 1 && cards[0].includes('Example'), `fresh start shows just the example scene (${cards.join(' | ')})`);
+  await fp.screenshot({ path: `${OUT}/fresh.png` });
+  await fresh.close();
+
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 } finally {
   await browser.close();
