@@ -10,6 +10,9 @@ with what we know so far. Nothing here is built until the owner says go.
 - [Explainer Studio](explainer-studio/README.md): YouTube-explainer-style
   polish with full control over text, shapes and smooth animation, live and
   in an editor; plus micro-lesson mode and Lesson Packs.
+- [Tool Shelf](tool-shelf/README.md): one home for your Claude-made HTML
+  tools: organize by course and unit, versions, checks, one-click student
+  links on GitHub Pages.
 
 ## Other ideas from the brainstorm (not chosen yet)
 
