@@ -171,6 +171,8 @@ try {
   // Scene builder: the real engine previews the scene; drag, restyle, save.
   await page.click('text=New scene');
   await page.waitForSelector('.builder .stage canvas');
+  check((await page.$$('.hit')).length === 0, 'new scenes start empty');
+  await page.click('.chip >> text=Float over the loop');
   await page.waitForTimeout(800);
   const pix = (x, y) =>
     page.evaluate(([x, y]) => [...document.querySelector('.builder .stage canvas').getContext('2d').getImageData(x, y, 1, 1).data].slice(0, 3), [x, y]);

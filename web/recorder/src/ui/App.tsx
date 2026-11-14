@@ -41,7 +41,10 @@ const store = {
   },
 };
 
-const DEFAULT_TEXT: SceneText = {
+// Everything starts blank: nothing shows in a recording unless you typed it.
+const DEFAULT_TEXT: SceneText = { title: '', name: '', role: '', problemTitle: '', problem: '', brbTitle: '', brb: '', outroTitle: '', outro: '' };
+// Sample values from earlier versions, cleared once on update.
+const OLD_SAMPLES: Partial<Record<keyof SceneText, string>> = {
   title: 'Solving two-step equations',
   name: 'Your name',
   role: 'Algebra 1 · Online',
@@ -49,6 +52,11 @@ const DEFAULT_TEXT: SceneText = {
   outro: 'Questions? Post them in Classroom.',
   brb: 'Grab a pencil and your notes',
 };
+function loadText(saved: Partial<SceneText>): SceneText {
+  const t = { ...DEFAULT_TEXT, ...saved };
+  for (const [k, v] of Object.entries(OLD_SAMPLES)) if (t[k as keyof SceneText] === v) t[k as keyof SceneText] = '';
+  return t;
+}
 
 type Phase = 'idle' | 'countdown' | 'recording';
 interface Toast {
@@ -104,7 +112,7 @@ export function App() {
     };
   }, []);
   const [scene, setSceneState] = useState<number>(() => store.get('scene', 2));
-  const [text, setText] = useState<SceneText>(() => ({ ...DEFAULT_TEXT, ...store.get('text', {}) }));
+  const [text, setText] = useState<SceneText>(() => loadText(store.get('text', {})));
   const [mirror, setMirror] = useState<boolean>(() => store.get('mirror', false));
   const [micMuted, setMicMuted] = useState(false);
   const [tab, setTab] = useState<'text' | 'sources' | 'effects' | 'content'>('text');
@@ -219,7 +227,7 @@ export function App() {
   }, [studio, editing, view]);
   const openBuilder = (c?: CustomScene) => {
     const id = c?.id ?? Math.max(99, ...customs.map((x) => x.id)) + 1;
-    const scene = c ? structuredClone(c) : { ...templates()[1].make(), id };
+    const scene = c ? structuredClone(c) : { ...templates()[0].make(), id };
     setEditing({ scene, isNew: !c, back: scene.id === sceneRef.current ? 2 : sceneRef.current });
   };
   const closeBuilder = (goTo: number) => {
@@ -780,30 +788,38 @@ export function App() {
           {tab === 'text' && (
             <div className="section">
               <h2 className="h-section">Scene text</h2>
-              <label className="field">
-                Lesson title
-                <input value={text.title} onChange={setField('title')} />
-              </label>
-              <label className="field">
-                Your name
-                <input value={text.name} onChange={setField('name')} />
-              </label>
-              <label className="field">
-                Name bar subtitle
-                <input value={text.role} onChange={setField('role')} />
-              </label>
-              <label className="field">
-                “Try this” problem
-                <input value={text.problem} onChange={setField('problem')} />
-              </label>
-              <label className="field">
-                Outro message
-                <input value={text.outro} onChange={setField('outro')} />
-              </label>
-              <label className="field">
-                “Be right back” note
-                <input value={text.brb} onChange={setField('brb')} />
-              </label>
+              <div className="note">Only what you type here shows up in your video. Leave anything blank to hide it.</div>
+              {(
+                [
+                  ['Everywhere', [
+                    ['title', 'Title', 'Shows on Welcome'],
+                    ['name', 'Your name', 'Welcome, name bars, Outro'],
+                    ['role', 'Subtitle', 'Shows under your name'],
+                  ]],
+                  ['Try this', [
+                    ['problemTitle', 'Heading', 'Big text at the top'],
+                    ['problem', 'Problem', 'In the white box, next to the timer'],
+                  ]],
+                  ['Be right back', [
+                    ['brbTitle', 'Heading', 'Big centered text'],
+                    ['brb', 'Note', 'Smaller text underneath'],
+                  ]],
+                  ['Outro', [
+                    ['outroTitle', 'Heading', 'Big text beside your camera'],
+                    ['outro', 'Message', 'Smaller text underneath'],
+                  ]],
+                ] as [string, [keyof SceneText, string, string][]][]
+              ).map(([group, fields]) => (
+                <div key={group} className="text-group">
+                  <div className="sub">{group}</div>
+                  {fields.map(([k, label, hint]) => (
+                    <label key={k} className="field">
+                      {label}
+                      <input value={text[k]} placeholder={hint} onChange={setField(k)} />
+                    </label>
+                  ))}
+                </div>
+              ))}
             </div>
           )}
 

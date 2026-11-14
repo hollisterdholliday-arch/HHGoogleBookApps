@@ -199,6 +199,9 @@ h1, h2, h3 { margin: 0; }
 .note { font-size: 12px; color: var(--on-var); line-height: 1.45; }
 .banner { margin: 0 20px 8px; padding: 12px 16px; border-radius: 18px; background: var(--prim-cont); color: var(--on-prim-cont); font-size: 14px; position: relative; z-index: 2; }
 
+.text-group { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.field input::placeholder { color: var(--on-var); opacity: 0.6; }
+
 /* ---------- toast ---------- */
 .toast {
   position: absolute; left: 50%; bottom: 28px; z-index: 5; transform: translateX(-50%); animation: rise 420ms var(--spring);

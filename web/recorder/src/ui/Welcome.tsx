@@ -18,11 +18,11 @@ export function Welcome(props: {
 }) {
   const { onNames, camOk, micOk, onAllow, folderName, onFolder, canInstall, installed, onInstall, onDone } = props;
   const [step, setStep] = useState(0);
-  const [name, setName] = useState(props.name === 'Your name' ? '' : props.name);
+  const [name, setName] = useState(props.name);
   const [role, setRole] = useState(props.role);
   const last = 4;
   const next = () => {
-    if (step === 1) onNames(name.trim() || 'Your name', role.trim());
+    if (step === 1) onNames(name.trim(), role.trim());
     if (step === last) onDone();
     else setStep(step + 1);
   };
@@ -57,11 +57,11 @@ export function Welcome(props: {
               <p className="w-lead">Used on title cards and name bars. You can change it any time.</p>
               <label className="field">
                 Your name
-                <input autoFocus placeholder="e.g. Ms. Rivera" value={name} onChange={(e) => setName(e.target.value)} />
+                <input autoFocus placeholder="Optional" value={name} onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="field">
                 Class or subject
-                <input placeholder="e.g. Algebra 1 · Room 214" value={role} onChange={(e) => setRole(e.target.value)} />
+                <input placeholder="Optional" value={role} onChange={(e) => setRole(e.target.value)} />
               </label>
             </>
           )}
