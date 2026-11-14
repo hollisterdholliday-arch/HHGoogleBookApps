@@ -16,6 +16,8 @@ export interface Prefs {
   echo: boolean;
   agc: boolean;
   brand: BrandSettings;
+  /** Show the 11 ready-made scenes next to your own. */
+  showBuiltIns: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -29,6 +31,7 @@ export const DEFAULT_PREFS: Prefs = {
   echo: true,
   agc: true,
   brand: { bar: '#141628', accent: '#bac3ff', text: '#ffffff', font: 'modern', logoOn: false },
+  showBuiltIns: false,
 };
 
 export const BITRATES: Record<Prefs['quality'], number> = { standard: 5_000_000, high: 8_000_000, max: 14_000_000 };
@@ -114,6 +117,9 @@ export function Settings(props: {
               <div className="note">1080p in every case. Higher quality makes sharper text and bigger files (about 40, 60 or 100 MB per minute).</div>
               <div className="tile-title">Countdown before recording</div>
               {seg(prefs.countdown, [[0, 'Off'], [3, '3 sec'], [5, '5 sec'], [10, '10 sec']], (v) => set('countdown', v), 'Countdown')}
+            </div>
+            <div className="card">
+              {sw(prefs.showBuiltIns, () => set('showBuiltIns', !prefs.showBuiltIns), 'Show ready-made scenes', 'Adds 11 built-in scenes (Welcome, Lesson, Presenter, Try this…) next to your own.')}
             </div>
           </>
         )}

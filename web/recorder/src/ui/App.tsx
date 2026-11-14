@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { SCENES, showsScreen, type Box, type Layout } from '../engine/scenes';
+import { SCENES, sceneById, showsScreen, type Box, type Layout } from '../engine/scenes';
 import { DEFAULT_FX, type BgMode, type BgPreset, type FxSettings } from '../engine/effects';
 import { idbGet, idbSet } from '../lib/idb';
 import { MiniPanel, miniSupported, useMiniWindow } from './MiniWindow';
@@ -9,7 +9,7 @@ import { BITRATES, DEFAULT_PREFS, Settings, type Prefs } from './Settings';
 import { Welcome } from './Welcome';
 import { applyAccent } from '../lib/theme';
 import { exportPack, importPack } from '../lib/packs';
-import { cssClip, loadCustom, loadMedia, saveCustom, templates, type CustomScene } from '../engine/custom';
+import { cssClip, exampleScene, loadCustom, loadMedia, saveCustom, templates, type CustomScene } from '../engine/custom';
 import { captionAvailability, installCaptions, type CaptionAvailability } from '../engine/captions';
 import { addFileTool, forgetTool, linkTool, loadTools, saveTools, toolUrl, type Tool } from '../lib/tools';
 import type { SceneText } from '../engine/compositor';
@@ -220,6 +220,28 @@ export function App() {
     }
   }, [studio, customs]);
   const allScenes = [...SCENES.map((x) => ({ id: x.id, name: x.name })), ...customs.map((c) => ({ id: c.id, name: c.name }))];
+  // The scene row shows your own scenes; the ready-made ones only if turned on in Settings.
+  const visibleScenes = [...(prefs.showBuiltIns ? SCENES.map((x) => ({ id: x.id, name: x.name })) : []), ...customs.map((c) => ({ id: c.id, name: c.name }))];
+  const visibleRef = useRef(visibleScenes);
+  visibleRef.current = visibleScenes;
+  // Start everyone with one example scene (once; delete it if you like).
+  useEffect(() => {
+    if (store.get('exampleSeeded', false)) return;
+    store.set('exampleSeeded', true);
+    setCustoms((l) => (l.length ? l : [exampleScene(100)]));
+  }, []);
+  // If the current scene was hidden, move to the first one you can see.
+  useEffect(() => {
+    if (!editing && visibleScenes.length && !visibleScenes.some((x) => x.id === sceneRef.current)) setScene(visibleScenes[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs.showBuiltIns, customs, editing]);
+  /** Where the teaching tool sits in a scene, if that scene has one. */
+  const toolBox = (id: number): { x: number; y: number; w: number; h: number } | null => {
+    const c = customs.find((x) => x.id === id);
+    if (c) return c.layers.find((l) => l.type === 'tool' && !l.hidden) ?? null;
+    const b = sceneById(id).layout.tool;
+    return id < 100 && b.o > 0 ? b : null;
+  };
   const sceneName = (id: number) => allScenes.find((x) => x.id === id)?.name ?? '';
   // Put the live preview back on the recorder screen after the builder.
   useEffect(() => {
@@ -323,7 +345,7 @@ export function App() {
     if (studio.sharing) return studio.stopShare();
     try {
       await studio.shareScreen();
-      if (!showsScreen(scene)) setScene(2);
+      if (scene < 100 && !showsScreen(scene) && prefs.showBuiltIns) setScene(2);
     } catch (e) {
       if (errText(e) === 'blocked') return; // user closed the picker
       say({ msg: 'Screen sharing is not available here.' });
@@ -445,7 +467,7 @@ export function App() {
     if (!f) return;
     try {
       await slides.open(f);
-      if (!showsScreen(scene) || scene === 8) setScene(2);
+      if (scene < 100 && (!showsScreen(scene) || scene === 8) && prefs.showBuiltIns) setScene(2);
       say({ msg: `Showing “${f.name}”. Use ← → or the buttons to change slides.` }, 4000);
     } catch {
       say({ msg: 'That PDF could not be opened.' });
@@ -457,7 +479,13 @@ export function App() {
     if (!url) return say({ msg: 'That file is no longer available. Add it again.' });
     if (activeTool?.tool.kind === 'file') URL.revokeObjectURL(activeTool.url);
     setActiveTool({ tool: t, url });
-    setScene(7);
+    // Show it in a scene that has a Teaching tool layer.
+    const target = visibleScenes.find((x) => toolBox(x.id));
+    if (target) setScene(target.id);
+    else {
+      setScene(7);
+      say({ msg: 'Tip: add a “Teaching tool” layer to one of your scenes in the scene builder to place tools where you want.' }, 8000);
+    }
     if (!studio.comp.tool.active) {
       // Wait for the tool panel to be on screen, then ask Chrome to record it.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -535,10 +563,10 @@ export function App() {
         e.preventDefault();
         void (e.key === 'ArrowRight' || e.key === 'PageDown' ? keys.current.slides.next() : keys.current.slides.prev());
       } else if (/^[1-9]$/.test(e.key) && (mod || (!typing && !e.altKey))) {
-        const id = Number(e.key);
-        if (SCENES.some((s) => s.id === id)) {
+        const target = visibleRef.current[Number(e.key) - 1];
+        if (target) {
           e.preventDefault();
-          keys.current.setScene(id);
+          keys.current.setScene(target.id);
         }
       }
     };
@@ -686,7 +714,15 @@ export function App() {
             <div className="stage" ref={stageRef}>
               {activeTool && (
                 // Stays mounted (under the preview) in other scenes so Chrome keeps recording it.
-                <div className={`tool-host ${scene === 7 ? '' : 'behind'}`} ref={toolHostRef} aria-hidden={scene !== 7}>
+                <div
+                  className={`tool-host ${toolBox(scene) ? '' : 'behind'}`}
+                  ref={toolHostRef}
+                  aria-hidden={!toolBox(scene)}
+                  style={(() => {
+                    const b = toolBox(scene);
+                    return b ? { left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%` } : undefined;
+                  })()}
+                >
                   <iframe
                     title={activeTool.tool.name}
                     src={activeTool.url}
@@ -743,15 +779,15 @@ export function App() {
           <nav className="scenes" aria-label="Scenes">
             <div className="scenes-head">
               <h2>Scenes</h2>
-              <span className="hint">Click, or press 1–9 (scenes 10+ in the mini window), even while recording</span>
+              <span className="hint">Click, or press 1–9, even while recording</span>
             </div>
             <div className="strip scroll">
-              {SCENES.map((s) => (
+              {(prefs.showBuiltIns ? SCENES : []).map((s) => (
                 <button key={s.id} type="button" className={`scene-card press ${s.id === scene ? 'active' : ''}`} aria-pressed={s.id === scene} onClick={() => setScene(s.id)}>
                   <Thumb layout={s.layout} />
                   <div className="scene-meta">
                     <span>{s.name}</span>
-                    {s.id <= 9 && <span className="key">{s.id}</span>}
+                    {visibleScenes.findIndex((v) => v.id === s.id) < 9 && <span className="key">{visibleScenes.findIndex((v) => v.id === s.id) + 1}</span>}
                   </div>
                 </button>
               ))}
@@ -761,6 +797,7 @@ export function App() {
                     <CustomThumb scene={c} />
                     <div className="scene-meta">
                       <span>{c.name}</span>
+                      {visibleScenes.findIndex((v) => v.id === c.id) < 9 && <span className="key">{visibleScenes.findIndex((v) => v.id === c.id) + 1}</span>}
                     </div>
                   </button>
                   <button type="button" className="edit-scene press" aria-label={`Edit ${c.name}`} title="Edit scene" onClick={() => openBuilder(c)} disabled={phase !== 'idle'}>
@@ -792,9 +829,9 @@ export function App() {
               {(
                 [
                   ['Everywhere', [
-                    ['title', 'Title', 'Shows on Welcome'],
-                    ['name', 'Your name', 'Welcome, name bars, Outro'],
-                    ['role', 'Subtitle', 'Shows under your name'],
+                    ['title', 'Title', 'Fills {title} in your text layers'],
+                    ['name', 'Your name', 'Fills {name}'],
+                    ['role', 'Subtitle', 'Fills {role}'],
                   ]],
                   ['Try this', [
                     ['problemTitle', 'Heading', 'Big text at the top'],
@@ -809,7 +846,9 @@ export function App() {
                     ['outro', 'Message', 'Smaller text underneath'],
                   ]],
                 ] as [string, [keyof SceneText, string, string][]][]
-              ).map(([group, fields]) => (
+              )
+                .filter(([group]) => prefs.showBuiltIns || group === 'Everywhere')
+                .map(([group, fields]) => (
                 <div key={group} className="text-group">
                   <div className="sub">{group}</div>
                   {fields.map(([k, label, hint]) => (
@@ -882,7 +921,7 @@ export function App() {
                   if (studio.comp.screen2.active) return studio.stopSecond();
                   try {
                     await studio.shareSecond();
-                    setScene(8);
+                    if (prefs.showBuiltIns) setScene(8);
                   } catch {
                     /* picker closed */
                   }
@@ -1057,7 +1096,7 @@ export function App() {
         <MiniPanel
           win={mini.win}
           scene={scene}
-          scenes={allScenes}
+          scenes={visibleScenes}
           setScene={setScene}
           phase={phase}
           paused={paused}
