@@ -11,7 +11,7 @@ improve and publish.
 ## Main focus: an AI hub (Claude + Gemini)
 
 The hub's top priority is **connecting Claude (makes the HTML) and Gemini
-(makes videos; also Muse for video)** so videos can be built into the HTML
+(makes videos; also Muse, Meta's AI, for video)** so videos can be built into the HTML
 tools.
 
 - Claude can read text, images and PDFs, **not video**. The hub bridges it:
@@ -32,7 +32,7 @@ tools.
 - Units publish as a folder: `index.html` + `media/`. GitHub's web upload
   takes files up to 25 MB each, so the hub shrinks videos to fit (reuse the
   Recorder's encoder).
-- Open: what "Muse" is exactly; typical video length and kind.
+- Open: typical video length and kind. Muse is Meta's AI (also used for video).
 
 ## How the owner works today
 
