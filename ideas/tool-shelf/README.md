@@ -1,6 +1,12 @@
 # Tool Shelf (planned, not built yet)
 
-Status: **idea, saved for later.** Don't build until the owner says go.
+Status: **tabled.** After a red-team review the owner decided it isn't
+necessary for now (low volume, ~12 tools a semester; folders + the Claude
+project + GitHub already cover most of it; AI services change too often to
+wire into). Revisit only if the owner asks. Cheaper alternatives if it comes
+up again: Claude project "house rules" (folder layout, video convention),
+deciding where videos are hosted (GitHub Pages caps a site at ~1 GB and web
+uploads at 25 MB per file), and at most a tiny video contact-sheet helper.
 
 ## The idea
 
