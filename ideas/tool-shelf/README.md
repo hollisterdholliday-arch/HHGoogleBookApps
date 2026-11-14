@@ -32,10 +32,13 @@ improve and publish.
 4. **Ask Claude to change this:** copies the tool + instructions as a ready
    prompt for the Claude project; paste the reply back to save the next
    version. (Built-in AI later only if wanted; needs an API key.)
-5. **Publish for students:** one click "Get student link" on GitHub Pages
-   (ideally a separate lessons repo/site); the link stays the same when the
-   tool is updated; unpublish anytime; optional one-link-per-unit page; add a
-   no-search-engine tag; pre-publish checks.
+5. **Publish for students (manual, decided):** Tool Shelf stays 100% local
+   and never signs in to GitHub. "Prepare for publishing" runs the checks,
+   adds a no-search-engine tag, and saves a publish-ready copy with a stable
+   name (e.g. `unit-04-plate-tectonics/index.html`) into a "Ready to publish"
+   folder. The owner drags it into their existing tools site on GitHub
+   (Add file → Upload files). Re-preparing and dragging over the old file
+   keeps the student link the same.
 6. **Use in Recorder:** send a tool to a Recorder scene.
 
 ## GitHub Pages facts (checked with the owner)
@@ -48,11 +51,16 @@ improve and publish.
   via view-source, so use for practice/study, not graded work. Never put
   student information in tools. Check school rules on outside sites.
 
+## Decided
+
+- The owner already has a **dedicated tools site** on GitHub Pages (on a
+  separate, school-managed GitHub account). Tool Shelf does not connect to
+  it; publishing is a manual file drag.
+- Master copies always live in Tool Shelf's local folder, so tools can be
+  republished anywhere if that account or address ever changes.
+
 ## Open questions
 
-- Separate lessons repo/site for published tools? (Recommended.)
-- Publishing needs GitHub access from the app (a fine-grained token stored on
-  the computer) or a manual "download + upload" step. Which?
 - Should published tools keep working offline for students (installable)?
 - Any stats wanted (e.g. how many opens)? GitHub Pages has none built in.
 
