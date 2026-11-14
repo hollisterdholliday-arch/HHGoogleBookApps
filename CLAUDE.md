@@ -1,5 +1,7 @@
 # Notes for Claude
 
+- App ideas the owner is considering live in `ideas/` (one folder each). Don't build them until asked.
+
 - Web apps live in `web/<app>` (Vite + React + TypeScript, Chrome/Edge first). Use only permissively licensed dependencies (MIT, Apache-2.0, BSD, ISC); no GPL/AGPL. Build: `npm run build`; smoke test: `npm test` (real Chromium, fake camera). `.github/workflows/pages.yml` publishes `web/` to GitHub Pages from main.
 
 - Target device: Lenovo Googlebook 15 (Intel x86_64), Google Book OS. Apps are Android APKs used as desktop apps.
