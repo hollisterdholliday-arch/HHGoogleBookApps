@@ -196,8 +196,8 @@ export function Settings(props: {
                 <div className="bar" style={{ background: prefs.brand.bar }}>
                   <i style={{ background: prefs.brand.accent }} />
                   <div style={{ color: prefs.brand.text }}>
-                    <b>Your name</b>
-                    <span>Algebra 1 · Online</span>
+                    <b>Name</b>
+                    <span>Subtitle</span>
                   </div>
                 </div>
               </div>

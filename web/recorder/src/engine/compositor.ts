@@ -38,9 +38,12 @@ export interface SceneText {
   title: string;
   name: string;
   role: string;
+  problemTitle: string;
   problem: string;
-  outro: string;
+  brbTitle: string;
   brb: string;
+  outroTitle: string;
+  outro: string;
 }
 
 interface PxBox {
@@ -144,7 +147,7 @@ export class Compositor {
   readonly slides = new Slides();
   readonly camera = new VideoSource();
   readonly fx = new CameraFx();
-  text: SceneText = { title: '', name: '', role: '', problem: '', outro: '', brb: '' };
+  text: SceneText = { title: '', name: '', role: '', problemTitle: '', problem: '', brbTitle: '', brb: '', outroTitle: '', outro: '' };
   cameraOn = true;
   mirrorCamera = false;
   ambient: HTMLCanvasElement | null = null;
@@ -587,41 +590,43 @@ export class Compositor {
       ctx.fillStyle = '#fff1e6';
       ctx.fillRect(0, 0, W, H);
       const x = W * 0.08;
-      ctx.fillStyle = '#7a2e00';
-      ctx.font = `750 34px ${FONT}`;
-      ctx.fillText(spaced('PAUSE THE VIDEO'), x, 300);
-      ctx.fillStyle = '#2b1300';
-      ctx.font = `850 120px ${FONT}`;
-      ctx.fillText('Try this one', x, 420);
-      ctx.font = `750 92px ${FONT}`;
-      const pw = Math.min(W * 0.55, ctx.measureText(t.problem || ' ').width + 120);
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = 'rgba(122,46,0,0.14)';
-      ctx.shadowBlur = 40;
-      ctx.beginPath();
-      ctx.roundRect(x, 500, pw, 170, 46);
-      ctx.fill();
-      ctx.shadowColor = 'transparent';
-      ctx.fillStyle = '#1b1b21';
-      ctx.fillText(clip(ctx, t.problem, pw - 120), x + 60, 620);
+      if (t.problemTitle) {
+        ctx.fillStyle = '#2b1300';
+        ctx.font = `850 120px ${FONT}`;
+        ctx.fillText(clip(ctx, t.problemTitle, W * 0.84), x, 420);
+      }
+      let timerX = x + 100;
+      if (t.problem) {
+        ctx.font = `750 92px ${FONT}`;
+        const pw = Math.min(W * 0.55, ctx.measureText(t.problem).width + 120);
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = 'rgba(122,46,0,0.14)';
+        ctx.shadowBlur = 40;
+        ctx.beginPath();
+        ctx.roundRect(x, 500, pw, 170, 46);
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = '#1b1b21';
+        ctx.fillText(clip(ctx, t.problem, pw - 120), x + 60, 620);
+        timerX = x + pw + 170;
+      }
       // Live one-minute timer that starts when the scene appears.
       const left = Math.max(0, 60 - Math.floor((now - this.sceneStart) / 1000));
-      const cx = x + pw + 170;
       const cy = 585;
       ctx.lineWidth = 22;
       ctx.strokeStyle = 'rgba(242,155,82,0.3)';
       ctx.beginPath();
-      ctx.arc(cx, cy, 100, 0, Math.PI * 2);
+      ctx.arc(timerX, cy, 100, 0, Math.PI * 2);
       ctx.stroke();
       ctx.strokeStyle = '#f29b52';
       ctx.beginPath();
-      ctx.arc(cx, cy, 100, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * left) / 60);
+      ctx.arc(timerX, cy, 100, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * left) / 60);
       ctx.stroke();
       ctx.fillStyle = '#2b1300';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `800 54px ${FONT}`;
-      ctx.fillText(`${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`, cx, cy + 2);
+      ctx.fillText(`${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`, timerX, cy + 2);
     } else if (kind === 'brb') {
       const g = ctx.createLinearGradient(0, 0, W, H);
       g.addColorStop(0, '#4a55a8');
@@ -629,26 +634,40 @@ export class Compositor {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `850 132px ${FONT}`;
-      ctx.fillText('Be right back', W / 2, H / 2 + 10);
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.font = `500 46px ${FONT}`;
-      ctx.fillText(clip(ctx, t.brb, W * 0.8), W / 2, H / 2 + 100);
+      if (t.brbTitle) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `850 132px ${FONT}`;
+        ctx.fillText(clip(ctx, t.brbTitle, W * 0.9), W / 2, H / 2 + 10);
+      }
+      if (t.brb) {
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.font = `500 46px ${FONT}`;
+        ctx.fillText(clip(ctx, t.brb, W * 0.8), W / 2, t.brbTitle ? H / 2 + 100 : H / 2 + 16);
+      }
     } else {
       ctx.fillStyle = '#20233f';
       ctx.fillRect(0, 0, W, H);
       const x = W * 0.46;
-      ctx.fillStyle = '#bac3ff';
-      ctx.font = `750 34px ${FONT}`;
-      ctx.fillText(spaced("THAT'S A WRAP"), x, 380);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `850 92px ${FONT}`;
-      const lines = wrap(ctx, t.outro, W * 0.48).slice(0, 3);
-      lines.forEach((ln, i) => ctx.fillText(ln, x, 490 + i * 100));
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.font = `500 40px ${FONT}`;
-      ctx.fillText(clip(ctx, `See you next class · ${t.name}`, W * 0.48), x, 520 + lines.length * 100);
+      let y = 400;
+      if (t.outroTitle) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `850 92px ${FONT}`;
+        const lines = wrap(ctx, t.outroTitle, W * 0.48).slice(0, 3);
+        lines.forEach((ln, i) => ctx.fillText(ln, x, y + 90 + i * 100));
+        y += 90 + lines.length * 100;
+      }
+      if (t.outro) {
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.font = `500 44px ${FONT}`;
+        const lines = wrap(ctx, t.outro, W * 0.48).slice(0, 3);
+        lines.forEach((ln, i) => ctx.fillText(ln, x, y + 30 + i * 56));
+        y += 30 + lines.length * 56;
+      }
+      if (t.name) {
+        ctx.fillStyle = '#bac3ff';
+        ctx.font = `600 38px ${FONT}`;
+        ctx.fillText(clip(ctx, t.name, W * 0.48), x, y + 40);
+      }
     }
     ctx.restore();
   }
@@ -658,6 +677,7 @@ export class Compositor {
   private drawTitle(a: number): void {
     const ctx = this.ctx;
     const t = this.text;
+    if (!t.title && !t.name && !t.role) return;
     ctx.save();
     ctx.globalAlpha = a;
     const g = ctx.createLinearGradient(0, H * 0.35, 0, H);
@@ -667,28 +687,38 @@ export class Compositor {
     ctx.fillRect(0, 0, W, H);
     const lift = (1 - a) * 50;
     const x = W * 0.06;
-    ctx.font = `850 108px ${FONT}`;
-    const lines = wrap(ctx, t.title, W * 0.62).slice(0, 2);
-    const bottom = H * 0.88 + lift;
-    const subY = bottom;
-    const titleY = subY - 70 - (lines.length - 1) * 112;
     ctx.shadowColor = 'rgba(0,0,0,0.35)';
     ctx.shadowBlur = 30;
-    ctx.fillStyle = 'rgba(255,255,255,0.88)';
-    ctx.font = `700 32px ${FONT}`;
-    ctx.fillText(spaced(t.role.split('·')[0].trim().toUpperCase()), x, titleY - 110);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `850 108px ${FONT}`;
-    lines.forEach((ln, i) => ctx.fillText(ln, x, titleY + i * 112));
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
-    ctx.font = `500 40px ${FONT}`;
-    ctx.fillText(`with ${t.name}`, x, subY);
+    // Stack upward from the bottom: name, title lines, subtitle.
+    let y = H * 0.88 + lift;
+    if (t.name) {
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = `500 40px ${FONT}`;
+      ctx.fillText(clip(ctx, t.name, W * 0.8), x, y);
+      y -= 70;
+    }
+    if (t.title) {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `850 108px ${FONT}`;
+      const lines = wrap(ctx, t.title, W * 0.62).slice(0, 2);
+      lines
+        .slice()
+        .reverse()
+        .forEach((ln, i) => ctx.fillText(ln, x, y - i * 112));
+      y -= (lines.length - 1) * 112 + 110;
+    }
+    if (t.role) {
+      ctx.fillStyle = 'rgba(255,255,255,0.88)';
+      ctx.font = `700 32px ${FONT}`;
+      ctx.fillText(clip(ctx, t.role, W * 0.8), x, y);
+    }
     ctx.restore();
   }
 
   private drawLower(a: number): void {
     const ctx = this.ctx;
     const t = this.text;
+    if (!t.name && !t.role) return;
     ctx.save();
     ctx.font = `750 46px ${this.brandFont}`;
     const nameW = ctx.measureText(t.name).width;
@@ -732,12 +762,9 @@ export class Compositor {
 
 function initials(name: string): string {
   const words = name.replace(/^(mr|mrs|ms|mx|dr)\.?\s+/i, '').split(/\s+/).filter(Boolean);
-  return (words.map((w) => w[0]).join('').slice(0, 2) || '?').toUpperCase();
+  return words.map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-function spaced(s: string): string {
-  return s.split('').join(' ');
-}
 
 function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
   const words = (text || '').split(/\s+/).filter(Boolean);

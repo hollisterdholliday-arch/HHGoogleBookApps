@@ -116,7 +116,7 @@ export function newLayer(type: LayerType): Layer {
     case 'tool':
       return { ...base, name: 'Teaching tool', x: 0.06, y: 0.12, w: 0.56, h: 0.56 };
     case 'text':
-      return { ...base, name: 'Text', x: 0.08, y: 0.42, w: 0.6, h: 0.12, text: 'New text', fontSize: 72, weight: 800, color: '#ffffff', align: 'left', shadow: false };
+      return { ...base, name: 'Text', x: 0.08, y: 0.42, w: 0.6, h: 0.12, text: '', fontSize: 72, weight: 800, color: '#ffffff', align: 'left', shadow: false };
     case 'image':
       return { ...base, name: 'Image', x: 0.42, y: 0.36, w: 0.16, h: H(0.16, 1), fill: '#ffd8a8' };
     case 'clip':
@@ -132,7 +132,7 @@ export function templates(): { name: string; make: () => Omit<CustomScene, 'id'>
   return [
     {
       name: 'Blank',
-      make: () => ({ name: 'My scene', bg: { kind: 'gradient', from: '#4a55a8', to: '#1a1d45' }, layers: [] }),
+      make: () => ({ name: '', bg: { kind: 'gradient', from: '#4a55a8', to: '#1a1d45' }, layers: [] }),
     },
     {
       name: 'Float over the loop',
@@ -140,7 +140,7 @@ export function templates(): { name: string; make: () => Omit<CustomScene, 'id'>
         name: 'Float over the loop',
         bg: { kind: 'aurora' },
         layers: [
-          { ...newLayer('text'), name: 'Big word (behind me)', x: 0.44, y: 0.06, w: 0.56, h: 0.24, text: 'ALGEBRA', fontSize: 210, weight: 900, color: 'rgba(255,255,255,0.22)' },
+          { ...newLayer('text'), name: 'Big word (behind me)', x: 0.44, y: 0.06, w: 0.56, h: 0.24, text: '{title}', fontSize: 210, weight: 900, color: 'rgba(255,255,255,0.22)' },
           { ...newLayer('screen'), x: 0.03, y: 0.14, w: 0.56, h: 0.56, border: 4, borderColor: 'rgba(255,255,255,0.6)' },
           { ...newLayer('camera'), x: 0.56, y: 0.12, w: 0.44, h: 0.88, shape: 'rect', border: 0, cutout: true },
           { ...newLayer('text'), name: 'Name bar', x: 0.6, y: 0.84, w: 0.36, h: 0.09, text: '{name} · {role}', fontSize: 40, weight: 700, pill: true },
@@ -169,7 +169,7 @@ export function templates(): { name: string; make: () => Omit<CustomScene, 'id'>
           { ...newLayer('shape'), name: 'Color band', x: 0, y: 0.62, w: 1, h: H(1, 4), shape: 'rect', fill: '#38437a' },
           { ...newLayer('camera'), x: 0.08, y: 0.1, w: 0.34, h: H(0.34, 1), shape: 'clover', border: 0 },
           { ...newLayer('text'), name: 'Title', x: 0.46, y: 0.24, w: 0.5, h: 0.2, text: '{title}', fontSize: 92, weight: 900 },
-          { ...newLayer('text'), name: 'Subtitle', x: 0.46, y: 0.46, w: 0.5, h: 0.08, text: 'with {name} · {date}', fontSize: 38, weight: 500 },
+          { ...newLayer('text'), name: 'Subtitle', x: 0.46, y: 0.46, w: 0.5, h: 0.08, text: '{name}', fontSize: 38, weight: 500 },
         ],
       }),
     },
