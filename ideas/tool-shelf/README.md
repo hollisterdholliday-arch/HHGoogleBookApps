@@ -8,6 +8,32 @@ One home for every interactive HTML tool the owner makes for class, from
 "Claude just made this" to "students are using it": organize, try, version,
 improve and publish.
 
+## Main focus: an AI hub (Claude + Gemini)
+
+The hub's top priority is **connecting Claude (makes the HTML) and Gemini
+(makes videos; also Muse for video)** so videos can be built into the HTML
+tools.
+
+- Claude can read text, images and PDFs, **not video**. The hub bridges it:
+  for each clip it makes a **video card**: a contact-sheet image of key
+  frames, length/size, a written description (Gemini can watch video and
+  writes it), and the exact file path to use (e.g. `media/clip.mp4`).
+  Claude builds the HTML with real `<video>` players from those cards.
+- The hub previews the tool with the actual videos playing, then saves it as
+  a version.
+- **Mode A (start here, no extra cost):** works with the owner's existing
+  Claude and Gemini subscriptions through copy/paste hand-offs ("Copy for
+  Gemini" description prompt, "Copy for Claude" instructions + video cards +
+  contact sheets for the Claude project; paste results back).
+- **Mode B (optional later):** direct connections to the Claude API and the
+  Gemini API (generate video, describe it, build/edit the tool) without
+  leaving the hub. Needs separate pay-per-use developer accounts (not
+  included in subscriptions); keys stored only on the computer.
+- Units publish as a folder: `index.html` + `media/`. GitHub's web upload
+  takes files up to 25 MB each, so the hub shrinks videos to fit (reuse the
+  Recorder's encoder).
+- Open: what "Muse" is exactly; typical video length and kind.
+
 ## How the owner works today
 
 - Tools are made with **Claude** (a Claude project per course); usually **one
