@@ -7,6 +7,9 @@ with what we know so far. Nothing here is built until the owner says go.
 
 - [Teleprompter](teleprompter/README.md): script floating under your camera
   while you record.
+- [Explainer Studio](explainer-studio/README.md): YouTube-explainer-style
+  polish with full control over text, shapes and smooth animation, live and
+  in an editor; plus micro-lesson mode and Lesson Packs.
 
 ## Other ideas from the brainstorm (not chosen yet)
 
