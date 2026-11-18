@@ -14,29 +14,6 @@ const PORT = 4318;
 const { preview } = await import('vite');
 const server = await preview({ preview: { port: PORT, strictPort: true }, logLevel: 'silent' });
 
-// A tiny valid PDF with one line of text per page.
-function makePdf(lines) {
-  const objs = [];
-  const kids = lines.map((_, i) => `${3 + i * 2} 0 R`).join(' ');
-  objs.push('<< /Type /Catalog /Pages 2 0 R >>');
-  objs.push(`<< /Type /Pages /Kids [${kids}] /Count ${lines.length} >>`);
-  lines.forEach((t, i) => {
-    const content = `BT /F1 64 Tf 80 300 Td (${t}) Tj ET`;
-    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 960 540] /Contents ${4 + i * 2} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>`);
-    objs.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
-  });
-  let out = '%PDF-1.4\n';
-  const offs = [];
-  objs.forEach((o, i) => {
-    offs.push(out.length);
-    out += `${i + 1} 0 obj\n${o}\nendobj\n`;
-  });
-  const xref = out.length;
-  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('');
-  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-  return Buffer.from(out, 'latin1');
-}
-
 let failed = false;
 const check = (ok, msg) => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`);
@@ -84,31 +61,76 @@ try {
   const camOn = await page.getAttribute('button[aria-label="Camera"]', 'aria-pressed');
   check(camOn === 'true', 'camera starts automatically');
 
-  // Fake screen share: an animated "slide" canvas stands in for a shared tab
-  // (headless Chrome has no real screen to pick).
+  // Built-in browser: add pages from the address bar, switch with tabs and
+  // Alt+number, and pages keep their state in the background.
+  const pageA = 'data:text/html,' + encodeURIComponent('<!doctype html><title>A</title><body style="margin:0;background:%231db954;color:%23fff;font:bold 60px sans-serif;display:grid;place-items:center;height:100vh"><button id="b" style="font:inherit" onclick="this.textContent=+this.textContent+1">0</button></body>');
+  const pageB = 'data:text/html,' + encodeURIComponent('<!doctype html><title>B</title><body style="margin:0;background:%23ffd08a;font:bold 60px sans-serif;display:grid;place-items:center;height:100vh">Page B</body>');
+  for (const url of [pageA, pageB]) {
+    await page.fill('.page-address input', url);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+  }
+  check((await page.$$('.page-tab')).length === 2, 'pages added from the address bar show as tabs');
+  check(await page.isVisible('.browser-host iframe.on'), 'the page shows live in the Lesson scene');
+  await page.click('.page-tab >> nth=0');
+  const frameA = page.frameLocator('.browser-host iframe >> nth=0');
+  await frameA.locator('#b').click();
+  await frameA.locator('#b').click();
+  await page.locator('.page-address input').click();
+  await page.keyboard.press('Alt+Digit2');
+  await page.waitForTimeout(200);
+  check((await page.getAttribute('.page-tab >> nth=1', 'aria-selected')) === 'true', 'Alt+2 switches pages');
+  await page.keyboard.press('Alt+Digit1');
+  await page.waitForTimeout(200);
+  check((await frameA.locator('#b').textContent()) === '2', 'switching pages keeps their place');
+  // Smart links: a YouTube watch link becomes its embed player.
+  await page.fill('.page-address input', 'youtube.com/watch?v=abc123');
+  await page.click('text=+ Save page');
+  await page.click('role=tab[name="Pages"]');
+  check(await page.isVisible('text=youtube.com/embed/abc123'), 'YouTube links are turned into embeddable links');
+  await page.click('.tile:has-text("youtube.com/embed") button[aria-label^="Remove"]');
+  check((await page.$$('.page-tab')).length === 2, 'pages can be removed');
+  await page.click('.page-tab >> nth=0');
+  // Headless Chrome answers the "This tab" request with a fake screen, so
+  // recording the browser itself can't be exercised here; check the app
+  // refuses the wrong surface and explains what to pick.
+  await page.click('text=Show pages in the recording');
+  await page.waitForSelector('.toast >> text=choose “This tab”', { timeout: 5000 }).then(
+    () => check(true, 'wrong share surface is refused with a clear hint'),
+    () => check(false, 'wrong share surface is refused with a clear hint'),
+  );
+  // Simulate Chrome approving "This tab": once recorded, the page moves under
+  // the preview (so the camera shows on top) and still takes clicks.
   await page.evaluate(() => {
     navigator.mediaDevices.getDisplayMedia = async () => {
       const c = document.createElement('canvas');
-      c.width = 1600;
-      c.height = 1000;
+      c.width = 1280;
+      c.height = 720;
       const x = c.getContext('2d');
-      let t = 0;
       setInterval(() => {
-        t++;
-        x.fillStyle = '#ffffff';
-        x.fillRect(0, 0, 1600, 1000);
-        x.fillStyle = '#4a55a8';
-        x.font = 'bold 90px sans-serif';
-        x.fillText('Shared slide', 120, 220);
-        x.fillStyle = '#f29b52';
-        x.fillRect(120 + ((t * 12) % 1200), 420, 200, 200);
+        x.fillStyle = '#1db954';
+        x.fillRect(0, 0, 1280, 720);
       }, 33);
-      return c.captureStream(30);
+      const s = c.captureStream(30);
+      s.getVideoTracks()[0].restrictTo = async () => {};
+      return s;
     };
   });
-  await page.click('text=Share screen');
-  await page.waitForTimeout(800);
-  check((await page.getAttribute('.tbtn >> nth=0', 'aria-pressed')) === 'true', 'screen share starts');
+  await page.click('text=Show pages in the recording');
+  await page.waitForSelector('.browser-host.under', { timeout: 5000 }).then(
+    () => check(true, 'after approval the page moves under the preview'),
+    () => check(false, 'after approval the page moves under the preview'),
+  );
+  await frameA.locator('#b').click();
+  check((await frameA.locator('#b').textContent()) === '3', 'the page still takes clicks through the preview');
+  await page.waitForTimeout(600);
+  const bubble = await page.evaluate(() => {
+    const c = document.querySelector('.stage canvas');
+    const d = c.getContext('2d').getImageData(Math.round(c.width * 0.87), Math.round(c.height * 0.78), 1, 1).data;
+    return [d[0], d[1], d[2]];
+  });
+  check(!(bubble[0] < 60 && bubble[1] > 150 && bubble[2] < 120), `camera bubble draws over the page (rgb ${bubble.join(',')})`);
+  await page.screenshot({ path: `${OUT}/browser.png` });
 
   // Pixels: the stage must not be blank.
   const lit = await page.evaluate(() => {
@@ -142,33 +164,6 @@ try {
   await page.waitForTimeout(900);
   await page.screenshot({ path: `${OUT}/blur.png` });
   await page.click('role=radio[name="Off"]');
-  await page.keyboard.press('2');
-
-  // Content: a PDF slide deck replaces the screen share.
-  const pdf = makePdf(['Slide one', 'Slide two']);
-  await page.click('role=tab[name="Content"]');
-  await page.setInputFiles('input[accept=".pdf,application/pdf"]', { name: 'lesson.pdf', mimeType: 'application/pdf', buffer: pdf });
-  await page.waitForSelector('text=Slide 1 of 2', { timeout: 20000 });
-  await page.keyboard.press('ArrowRight');
-  await page.waitForSelector('text=Slide 2 of 2', { timeout: 10000 });
-  check(true, 'PDF slides open and advance with the arrow keys');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: `${OUT}/slides.png` });
-  await page.click('text=Go back to screen share');
-
-  // Content: an HTML tool runs inside the recorder and is captured.
-  const tool = '<!doctype html><body style="margin:0;background:#1db954;font:bold 80px sans-serif;color:#fff;display:grid;place-items:center;height:100vh">My tool</body>';
-  await page.setInputFiles('input[accept=".html,.htm,text/html"]', { name: 'balance-tool.html', mimeType: 'text/html', buffer: Buffer.from(tool) });
-  await page.waitForSelector('.tool-host iframe');
-  await page.waitForTimeout(2500);
-  // Headless Chrome answers with a fake whole-screen share, not "this tab",
-  // so Element Capture can't be exercised here: check the app refuses to
-  // record the wrong surface and explains what to pick.
-  await page.waitForTimeout(500);
-  check(await page.isVisible('.tool-host iframe'), 'HTML tool runs inside the recorder');
-  check(await page.isVisible('text=choose “This tab”'), 'wrong share surface is refused with a clear hint');
-  check(await page.isVisible('.tool-capture'), '"Show this tool in the recording" stays available');
-  await page.screenshot({ path: `${OUT}/tool.png` });
   await page.keyboard.press('2');
 
   // Scene builder: the real engine previews the scene; drag, restyle, save.

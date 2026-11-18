@@ -22,9 +22,13 @@ What it does:
   shapes and timers; eight outline shapes including Expressive cookie,
   clover, burst and arch; looping-video or animated backgrounds; layers
   behind or in front of you. The preview is the real recorder.
-- **Screen, tab or window sharing** (with sound) plus a second window.
+- **Built-in browser** instead of screen sharing: save web pages as tabs
+  above the preview (or in the Pages panel), switch with a click, Alt + 1–9
+  or the mini window, and they keep their place. Scenes show the current
+  page in their screen area; you click and scroll it live while recording.
+  YouTube, Google Docs/Slides/Drive and Vimeo links are swapped for their
+  embeddable versions automatically.
 - **Camera effects**: blur, replace, remove; auto-framing; light fix.
-- **PDF slides** and **teaching tools** (your HTML files and links, live).
 - **Mini window** that floats above other apps.
 - **Library**: thumbnails, player, chapters from scene switches, lossless
   trim, rename, delete, captions.
@@ -40,7 +44,8 @@ Shortcuts (while the recorder or its mini window is in front):
 | Action | Keys |
 |---|---|
 | Switch scene | `1`–`9` (or Ctrl + number) |
-| Next / previous slide | → / ← |
+| Switch page | Alt + 1–9 (Option on a Mac) |
+| Next / previous page | Alt + ] / Alt + [ |
 | Start / stop recording | Ctrl + Shift + Enter |
 | Pause / resume | Ctrl + Shift + Space |
 

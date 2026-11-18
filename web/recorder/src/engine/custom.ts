@@ -110,7 +110,7 @@ export function newLayer(type: LayerType): Layer {
     case 'camera':
       return { ...base, name: 'Camera', x: 0.62, y: 0.2, w: 0.28, h: H(0.28, 1), shape: 'circle', border: 6 };
     case 'screen':
-      return { ...base, name: 'Screen', x: 0.06, y: 0.12, w: 0.56, h: 0.56 };
+      return { ...base, name: 'Browser', x: 0.06, y: 0.12, w: 0.56, h: 0.56 };
     case 'screen2':
       return { ...base, name: 'Second screen', x: 0.38, y: 0.12, w: 0.56, h: 0.56 };
     case 'tool':
@@ -234,7 +234,7 @@ export const fillText = (t: string, v: { title: string; name: string; role: stri
 export function exampleScene(id: number): CustomScene {
   return {
     id,
-    name: 'Example: screen + camera',
+    name: 'Example: browser + camera',
     bg: { kind: 'color', value: '#0d0d10' },
     layers: [
       { ...newLayer('screen'), x: 0, y: 0, w: 1, h: 1, shape: 'rect', shadow: false },

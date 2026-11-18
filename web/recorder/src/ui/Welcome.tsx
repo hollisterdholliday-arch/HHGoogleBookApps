@@ -48,7 +48,7 @@ export function Welcome(props: {
             <>
               <div className="w-kicker">WELCOME TO RECORDER</div>
               <h1 className="w-hero">Make lesson videos your students want to watch.</h1>
-              <p className="w-lead">Record your screen, your slides and yourself, switch scenes live, and save straight to your computer. Setup takes about a minute.</p>
+              <p className="w-lead">Record yourself with web pages right inside the recorder, switch scenes and pages live, and save straight to your computer. Setup takes about a minute.</p>
             </>
           )}
           {step === 1 && (
@@ -86,7 +86,7 @@ export function Welcome(props: {
                   Allow camera and microphone
                 </button>
               )}
-              <div className="note">Screen sharing is asked each time you share, so you always choose what is shown.</div>
+              <div className="note">To record your pages, Chrome asks once per session to share “This tab”. That’s the recorder itself; nothing else on your screen is recorded.</div>
             </>
           )}
           {step === 3 && (

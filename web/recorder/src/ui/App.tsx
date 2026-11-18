@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { SCENES, sceneById, showsScreen, type Box, type Layout } from '../engine/scenes';
+import { SCENES, sceneById, type Box, type Layout } from '../engine/scenes';
 import { DEFAULT_FX, type BgMode, type BgPreset, type FxSettings } from '../engine/effects';
 import { idbGet, idbSet } from '../lib/idb';
 import { MiniPanel, miniSupported, useMiniWindow } from './MiniWindow';
@@ -11,13 +11,14 @@ import { applyAccent } from '../lib/theme';
 import { exportPack, importPack } from '../lib/packs';
 import { cssClip, exampleScene, loadCustom, loadMedia, saveCustom, templates, type CustomScene } from '../engine/custom';
 import { captionAvailability, installCaptions, type CaptionAvailability } from '../engine/captions';
-import { addFileTool, forgetTool, linkTool, loadTools, saveTools, toolUrl, type Tool } from '../lib/tools';
+import { loadPages, savePages, type Page } from '../lib/pages';
+import { BrowserHost, makePage, PagesPanel, PageToolbar } from './Browser';
 import type { SceneText } from '../engine/compositor';
 import type { DeviceLists } from '../engine/studio';
 import { Studio } from '../engine/studio';
 import type { Sink } from '../engine/recorder';
 import { canPickFolder, chooseFolder, downloadSink, ensureWritable, fileNameFor, folderSink, savedFolder } from '../lib/folder';
-import { IconCamera, IconClose, IconFolder, IconMic, IconMoon, IconPause, IconPip, IconPlay, IconScreen, IconSun } from './icons';
+import { IconCamera, IconClose, IconFolder, IconMic, IconMoon, IconPause, IconPip, IconPlay, IconSun } from './icons';
 
 // One studio for the whole page (React StrictMode mounts twice in dev).
 let studioSingleton: Studio | null = null;
@@ -115,16 +116,17 @@ export function App() {
   const [text, setText] = useState<SceneText>(() => loadText(store.get('text', {})));
   const [mirror, setMirror] = useState<boolean>(() => store.get('mirror', false));
   const [micMuted, setMicMuted] = useState(false);
-  const [tab, setTab] = useState<'text' | 'sources' | 'effects' | 'content'>('text');
-  const [tools, setTools] = useState<Tool[]>(loadTools);
+  const [tab, setTab] = useState<'text' | 'pages' | 'camera' | 'effects'>('text');
+  // The built-in browser: saved pages, the one showing, per-page reloads.
+  const [pages, setPages] = useState<Page[]>(loadPages);
+  const [activePage, setActivePage] = useState<string | null>(() => store.get('activePage', null));
+  const [reloads, setReloads] = useState<Record<string, number>>({});
+  const browserRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<'record' | 'library' | 'settings'>('record');
   const [customs, setCustoms] = useState<CustomScene[]>(loadCustom);
   const [editing, setEditing] = useState<{ scene: CustomScene; isNew: boolean; back: number } | null>(null);
   const [captionsOn, setCaptionsOn] = useState<boolean>(() => store.get('captions', false));
   const [capAvail, setCapAvail] = useState<CaptionAvailability | 'unknown'>('unknown');
-  const [activeTool, setActiveTool] = useState<{ tool: Tool; url: string } | null>(null);
-  const [linkDraft, setLinkDraft] = useState('');
-  const toolHostRef = useRef<HTMLDivElement>(null);
   const [fx, setFx] = useState<FxSettings>(() => ({ ...DEFAULT_FX, ...store.get('fx', {}) }));
   const [hasBgImage, setHasBgImage] = useState(false);
   const [devices, setDevices] = useState<DeviceLists>({ cameras: [], mics: [] });
@@ -209,7 +211,15 @@ export function App() {
     studio.comp.fx.settings = fx;
     store.set('fx', fx);
   }, [studio, fx]);
-  useEffect(() => saveTools(tools), [tools]);
+  useEffect(() => savePages(pages), [pages]);
+  useEffect(() => {
+    store.set('activePage', activePage);
+  }, [activePage]);
+  // Keep a page selected whenever there are pages.
+  useEffect(() => {
+    if (pages.length && !pages.some((p) => p.id === activePage)) setActivePage(pages[0].id);
+    if (!pages.length && activePage) setActivePage(null);
+  }, [pages, activePage]);
   useEffect(() => {
     studio.comp.customs = customs;
     saveCustom(customs);
@@ -236,10 +246,11 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs.showBuiltIns, customs, editing]);
   /** Where the teaching tool sits in a scene, if that scene has one. */
-  const toolBox = (id: number): { x: number; y: number; w: number; h: number } | null => {
+  /** Where the browser sits in a scene (its screen area), if it shows one. */
+  const screenBox = (id: number): { x: number; y: number; w: number; h: number } | null => {
     const c = customs.find((x) => x.id === id);
-    if (c) return c.layers.find((l) => l.type === 'tool' && !l.hidden) ?? null;
-    const b = sceneById(id).layout.tool;
+    if (c) return c.layers.find((l) => l.type === 'screen' && !l.hidden) ?? null;
+    const b = sceneById(id).layout.screen;
     return id < 100 && b.o > 0 ? b : null;
   };
   const sceneName = (id: number) => allScenes.find((x) => x.id === id)?.name ?? '';
@@ -286,7 +297,6 @@ export function App() {
     setCaptionsOn(true);
   };
   useEffect(() => {
-    studio.comp.slides.onChange = () => rerender((n) => n + 1);
     studio.comp.fx.onStatus = () => rerender((n) => n + 1);
     idbGet<Blob>('bgImage').then(async (b) => {
       if (!b) return;
@@ -341,16 +351,6 @@ export function App() {
   }, [phase, studio]);
 
   // ---- actions ----
-  const toggleShare = async () => {
-    if (studio.sharing) return studio.stopShare();
-    try {
-      await studio.shareScreen();
-      if (scene < 100 && !showsScreen(scene) && prefs.showBuiltIns) setScene(2);
-    } catch (e) {
-      if (errText(e) === 'blocked') return; // user closed the picker
-      say({ msg: 'Screen sharing is not available here.' });
-    }
-  };
   const toggleCam = async () => {
     if (studio.cameraLive) return studio.stopCamera();
     try {
@@ -392,6 +392,7 @@ export function App() {
 
   const startRecording = async () => {
     studio.audio.resume();
+    if (pages.length && !studio.sharing) await captureBrowser();
     if (captionsOn && capAvail === 'unknown') await checkCaptions();
     const name = fileNameFor(text.title, studio.format.ext);
     let sink: Sink | null = null;
@@ -459,80 +460,42 @@ export function App() {
     setPaused(r.paused);
   };
 
-  // ---- content: slides and teaching tools ----
-  const slides = studio.comp.slides;
-  const onPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    e.target.value = '';
-    if (!f) return;
+  // ---- built-in browser ----
+  /** Ask Chrome (once per session) to let the recorder record its own browser. */
+  const captureBrowser = async (): Promise<boolean> => {
+    const host = browserRef.current;
+    if (!host) return false;
     try {
-      await slides.open(f);
-      if (scene < 100 && (!showsScreen(scene) || scene === 8) && prefs.showBuiltIns) setScene(2);
-      say({ msg: `Showing “${f.name}”. Use ← → or the buttons to change slides.` }, 4000);
-    } catch {
-      say({ msg: 'That PDF could not be opened.' });
-    }
-  };
-
-  const openTool = async (t: Tool) => {
-    const url = await toolUrl(t);
-    if (!url) return say({ msg: 'That file is no longer available. Add it again.' });
-    if (activeTool?.tool.kind === 'file') URL.revokeObjectURL(activeTool.url);
-    setActiveTool({ tool: t, url });
-    // Show it in a scene that has a Teaching tool layer.
-    const target = visibleScenes.find((x) => toolBox(x.id));
-    if (target) setScene(target.id);
-    else {
-      setScene(7);
-      say({ msg: 'Tip: add a “Teaching tool” layer to one of your scenes in the scene builder to place tools where you want.' }, 8000);
-    }
-    if (!studio.comp.tool.active) {
-      // Wait for the tool panel to be on screen, then ask Chrome to record it.
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      void captureTool();
-    }
-  };
-  const captureTool = async () => {
-    const host = toolHostRef.current;
-    if (!host) return;
-    try {
-      await studio.captureElement(host);
+      await studio.captureElement(host, 'browser');
+      return true;
     } catch (e) {
-      if (e instanceof Error && e.message === 'not-this-tab') say({ msg: 'When Chrome asks what to share, choose “This tab”. Then click “Show this tool in the recording”.' }, 9000);
-      else if (errText(e) !== 'blocked') say({ msg: 'Chrome could not record the tool. Try Share screen and pick its tab instead.' });
+      if (e instanceof Error && e.message === 'not-this-tab') say({ msg: 'When Chrome asks what to share, choose “This tab” so the recorder can record its built-in browser.' }, 9000);
+      else if (errText(e) !== 'blocked') say({ msg: 'Chrome could not record the built-in browser.' });
+      return false;
     }
   };
-  const closeTool = () => {
-    if (activeTool?.tool.kind === 'file') URL.revokeObjectURL(activeTool.url);
-    setActiveTool(null);
-    studio.stopToolCapture();
+  const addPage = (input: string) => {
+    const p = makePage(input, pages.length);
+    if (!p.url) return;
+    setPages((l) => [...l, p]);
+    setActivePage(p.id);
   };
-  const onToolFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = [...(e.target.files ?? [])];
-    e.target.value = '';
-    const added = await Promise.all(files.map(addFileTool));
-    if (added.length) {
-      setTools((l) => [...l, ...added]);
-      void openTool(added[added.length - 1]);
-    }
+  const openPage = (input: string) => {
+    // Typing an address shows it right away and keeps it in your pages.
+    const p = makePage(input, pages.length);
+    if (!p.url) return;
+    const existing = pages.find((x) => x.url === p.url);
+    if (existing) return setActivePage(existing.id);
+    setPages((l) => [...l, p]);
+    setActivePage(p.id);
   };
-  const addLink = () => {
-    const v = linkDraft.trim();
-    if (!v) return;
-    try {
-      const t = linkTool(v);
-      setTools((l) => [...l, t]);
-      setLinkDraft('');
-      void openTool(t);
-    } catch {
-      say({ msg: 'That does not look like a web address.' });
-    }
+  const pickPage = (id: string) => setActivePage(id);
+  const stepPage = (d: number) => {
+    if (!pages.length) return;
+    const i = Math.max(0, pages.findIndex((p) => p.id === activePage));
+    setActivePage(pages[(i + d + pages.length) % pages.length].id);
   };
-  const removeTool = (t: Tool) => {
-    if (activeTool?.tool.id === t.id) closeTool();
-    setTools((l) => l.filter((x) => x.id !== t.id));
-    void forgetTool(t);
-  };
+  const reloadPage = () => activePage && setReloads((r) => ({ ...r, [activePage]: (r[activePage] ?? 0) + 1 }));
 
   const onBgImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -547,8 +510,8 @@ export function App() {
   };
 
   // Keyboard: 1–9 or Ctrl+1–9 switch scenes; Ctrl+Shift+Enter records; Ctrl+Shift+Space pauses.
-  const keys = useRef({ toggleRecord, togglePause, setScene, slides });
-  keys.current = { toggleRecord, togglePause, setScene, slides };
+  const keys = useRef({ toggleRecord, togglePause, setScene, pickPage, stepPage, pages });
+  keys.current = { toggleRecord, togglePause, setScene, pickPage, stepPage, pages };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
@@ -559,9 +522,16 @@ export function App() {
       } else if (mod && e.shiftKey && e.code === 'Space') {
         e.preventDefault();
         keys.current.togglePause();
-      } else if (!typing && keys.current.slides.active && ['ArrowRight', 'ArrowLeft', 'PageDown', 'PageUp'].includes(e.key)) {
+      } else if (e.altKey && /^Digit[1-9]$/.test(e.code)) {
+        // Alt + 1–9: switch pages (e.code, so it works with Option on a Mac too)
+        const p = keys.current.pages[Number(e.code.slice(5)) - 1];
+        if (p) {
+          e.preventDefault();
+          keys.current.pickPage(p.id);
+        }
+      } else if (e.altKey && (e.code === 'BracketLeft' || e.code === 'BracketRight')) {
         e.preventDefault();
-        void (e.key === 'ArrowRight' || e.key === 'PageDown' ? keys.current.slides.next() : keys.current.slides.prev());
+        keys.current.stepPage(e.code === 'BracketRight' ? 1 : -1);
       } else if (/^[1-9]$/.test(e.key) && (mod || (!typing && !e.altKey))) {
         const target = visibleRef.current[Number(e.key) - 1];
         if (target) {
@@ -711,31 +681,21 @@ export function App() {
       <main className="body" hidden={view !== 'record' || !!editing}>
         <section className="stage-col" aria-label="Preview">
           <div className="stage-wrap">
+            <PageToolbar pages={pages} active={activePage} onPick={pickPage} onOpen={openPage} onAdd={addPage} onReload={reloadPage} />
             <div className="stage" ref={stageRef}>
-              {activeTool && (
-                // Stays mounted (under the preview) in other scenes so Chrome keeps recording it.
-                <div
-                  className={`tool-host ${toolBox(scene) ? '' : 'behind'}`}
-                  ref={toolHostRef}
-                  aria-hidden={!toolBox(scene)}
-                  style={(() => {
-                    const b = toolBox(scene);
-                    return b ? { left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%` } : undefined;
-                  })()}
-                >
-                  <iframe
-                    title={activeTool.tool.name}
-                    src={activeTool.url}
-                    sandbox={activeTool.tool.kind === 'file' ? 'allow-scripts allow-forms allow-modals allow-popups allow-downloads' : 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads'}
-                    allow="autoplay; fullscreen; clipboard-write"
-                  />
-                  {!studio.comp.tool.active && (
-                    <button type="button" className="tool-capture press" onClick={captureTool}>
-                      Show this tool in the recording
-                    </button>
-                  )}
-                </div>
-              )}
+              <BrowserHost
+                ref={browserRef}
+                pages={pages}
+                active={activePage}
+                reloads={reloads}
+                behind={!screenBox(scene)}
+                captured={studio.sharing}
+                onCapture={() => void captureBrowser()}
+                style={(() => {
+                  const b = screenBox(scene);
+                  return b ? { left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%` } : undefined;
+                })()}
+              />
               {phase === 'countdown' && count > 0 && (
                 <div className="countdown" aria-live="assertive">
                   <span key={count}>{count}</span>
@@ -745,10 +705,6 @@ export function App() {
 
             <div className="controls">
               <div className="controls-inner" role="toolbar" aria-label="Recording controls">
-                <button className={`tbtn press ${studio.sharing ? 'on' : ''}`} type="button" aria-pressed={studio.sharing} onClick={toggleShare}>
-                  <IconScreen />
-                  <span>{studio.sharing ? 'Stop sharing' : 'Share screen'}</span>
-                </button>
                 <button className={`tbtn press ${studio.cameraLive ? 'on' : ''}`} type="button" aria-label="Camera" aria-pressed={studio.cameraLive} onClick={toggleCam}>
                   <IconCamera />
                 </button>
@@ -815,9 +771,9 @@ export function App() {
 
         <aside className="panel scroll" aria-label="Settings">
           <div className="tabs" role="tablist">
-            {(['text', 'sources', 'effects', 'content'] as const).map((t) => (
+            {(['text', 'pages', 'camera', 'effects'] as const).map((t) => (
               <button key={t} role="tab" type="button" aria-selected={tab === t} className={`tab press ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-                {{ text: 'Text', sources: 'Sources', effects: 'Effects', content: 'Content' }[t]}
+                {{ text: 'Text', pages: 'Pages', camera: 'Camera', effects: 'Effects' }[t]}
               </button>
             ))}
           </div>
@@ -862,21 +818,11 @@ export function App() {
             </div>
           )}
 
-          {tab === 'sources' && (
+          {tab === 'pages' && <PagesPanel pages={pages} active={activePage} setPages={setPages} onPick={pickPage} onAdd={addPage} />}
+
+          {tab === 'camera' && (
             <div className="section">
-              <h2 className="h-section">Sources</h2>
-              <div className="tile">
-                <div className="tile-main">
-                  <div className="tile-title">Screen</div>
-                  <div className="tile-note">{studio.sharing ? `${studio.screenLabel}${studio.audio.hasSystemAudio ? ' · with sound' : ''}` : 'Not shared'}</div>
-                </div>
-                <button className="text-btn press" type="button" onClick={async () => {
-                  if (studio.sharing) studio.stopShare();
-                  await toggleShare();
-                }}>
-                  {studio.sharing ? 'Change' : 'Share'}
-                </button>
-              </div>
+              <h2 className="h-section">Camera and mic</h2>
               <label className="field">
                 Camera
                 <select
@@ -911,24 +857,6 @@ export function App() {
                   ))}
                 </select>
               </label>
-              <div className="note">To record sound from a video or app, tick “Share audio” in Chrome’s share picker.</div>
-              <div className="tile">
-                <div className="tile-main">
-                  <div className="tile-title">Second screen</div>
-                  <div className="tile-note">{studio.comp.screen2.active ? 'Shared · used in Two screens' : 'For the Two screens scene'}</div>
-                </div>
-                <button className="text-btn press" type="button" onClick={async () => {
-                  if (studio.comp.screen2.active) return studio.stopSecond();
-                  try {
-                    await studio.shareSecond();
-                    if (prefs.showBuiltIns) setScene(8);
-                  } catch {
-                    /* picker closed */
-                  }
-                }}>
-                  {studio.comp.screen2.active ? 'Stop' : 'Share'}
-                </button>
-              </div>
             </div>
           )}
 
@@ -989,76 +917,6 @@ export function App() {
             </div>
           )}
 
-          {tab === 'content' && (
-            <div className="section">
-              <h2 className="h-section">Slides</h2>
-              <div className="note">Upload a PDF, or PowerPoint, Google Slides or Keynote saved as PDF. It takes the place of the screen share in your scenes.</div>
-              <label className="upload-btn press tonal">
-                Upload slides (PDF)
-                <input type="file" accept=".pdf,application/pdf" onChange={onPdf} />
-              </label>
-              {slides.active && (
-                <>
-                  <div className="tile selected">
-                    <div className="pdf-badge" aria-hidden="true">PDF</div>
-                    <div className="tile-main">
-                      <div className="tile-title">{slides.name}</div>
-                      <div className="tile-note">
-                        Slide {slides.page} of {slides.pages}
-                      </div>
-                    </div>
-                    <button className="round-btn press" type="button" aria-label="Previous slide" onClick={slides.prev} disabled={slides.page <= 1}>
-                      ‹
-                    </button>
-                    <button className="round-btn press primary" type="button" aria-label="Next slide" onClick={slides.next} disabled={slides.page >= slides.pages}>
-                      ›
-                    </button>
-                  </div>
-                  <button className="text-btn press" type="button" onClick={() => slides.close()}>
-                    Go back to screen share
-                  </button>
-                </>
-              )}
-              <div className="divider" />
-              <h2 className="h-section">Teaching tools</h2>
-              <div className="note">Add HTML files from your computer or paste a link. They run inside the recorder in the Tool + me scene, and you can click and type in them while you record.</div>
-              <label className="upload-btn press">
-                Upload HTML files
-                <input type="file" accept=".html,.htm,text/html" multiple onChange={onToolFiles} />
-              </label>
-              {tools.length === 0 && <div className="empty">No tools yet. Upload an HTML file or add a link below.</div>}
-              {tools.map((t) => (
-                <div key={t.id} className={`tile ${activeTool?.tool.id === t.id ? 'selected' : ''}`}>
-                  <button type="button" className="tile-btn" onClick={() => openTool(t)}>
-                    <div className="tool-badge" aria-hidden="true">{t.name[0]}</div>
-                    <div className="tile-main">
-                      <div className="tile-title">{t.name}</div>
-                      <div className="tile-note">{t.kind === 'file' ? `${t.src} · on this computer` : t.src.replace(/^https?:\/\//, '')}</div>
-                    </div>
-                  </button>
-                  <button className="icon-btn press" type="button" aria-label={`Remove ${t.name}`} onClick={() => removeTool(t)}>
-                    <IconClose />
-                  </button>
-                </div>
-              ))}
-              <label className="field">
-                Add a tool by link
-                <div className="row">
-                  <input type="url" placeholder="https://…" value={linkDraft} onChange={(e) => setLinkDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLink()} />
-                  <button className="small-btn press" type="button" onClick={addLink}>
-                    Add
-                  </button>
-                </div>
-              </label>
-              {activeTool && (
-                <button className="text-btn press" type="button" onClick={closeTool}>
-                  Close “{activeTool.tool.name}”
-                </button>
-              )}
-              <div className="note">Some websites refuse to run inside other apps. If one stays blank, share its tab with Share screen instead.</div>
-            </div>
-          )}
-
           <div className="divider" />
           <div className="row">
             <div className="chip-icon" aria-hidden="true">
@@ -1104,7 +962,9 @@ export function App() {
           count={count}
           onRecord={toggleRecord}
           onPause={togglePause}
-          slides={slides.active ? { page: slides.page, pages: slides.pages, next: slides.next, prev: slides.prev } : null}
+          pages={pages.map((p) => ({ id: p.id, title: p.title }))}
+          activePage={activePage}
+          onPickPage={pickPage}
         />
       )}
 
