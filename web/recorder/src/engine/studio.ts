@@ -86,7 +86,7 @@ export class Studio {
    * Record one element of this page (the teaching tool) with Chrome's
    * Element Capture, falling back to Region Capture on older Chrome.
    */
-  async captureElement(el: HTMLElement): Promise<void> {
+  async captureElement(el: HTMLElement, into: 'tool' | 'browser' = 'tool'): Promise<void> {
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: { ideal: 30 } },
       audio: true,
@@ -109,12 +109,16 @@ export class Studio {
       stream.getTracks().forEach((t) => t.stop());
       throw new Error('not-this-tab');
     }
-    this.comp.tool.start(stream);
-    this.audio.setExtra('tool', stream);
-    this.comp.tool.onEnded = () => {
-      this.audio.setExtra('tool', null);
+    // The built-in browser feeds every scene's screen area.
+    const target = into === 'browser' ? this.comp.screen : this.comp.tool;
+    target.start(stream);
+    this.audio.setExtra(into, stream);
+    target.onEnded = () => {
+      this.audio.setExtra(into, null);
+      if (into === 'browser') this.screenLabel = '';
       this.onChange();
     };
+    if (into === 'browser') this.screenLabel = 'Built-in browser';
     this.onChange();
   }
 

@@ -8,9 +8,7 @@ import { IconClose } from './icons';
 
 const ADD: { type: LayerType; label: string; letter: string }[] = [
   { type: 'camera', label: 'Camera', letter: 'C' },
-  { type: 'screen', label: 'Screen', letter: 'S' },
-  { type: 'screen2', label: '2nd screen', letter: '2' },
-  { type: 'tool', label: 'Tool', letter: 'H' },
+  { type: 'screen', label: 'Browser', letter: 'B' },
   { type: 'text', label: 'Text', letter: 'T' },
   { type: 'image', label: 'Picture', letter: 'P' },
   { type: 'clip', label: 'Video loop', letter: 'V' },
@@ -19,7 +17,7 @@ const ADD: { type: LayerType; label: string; letter: string }[] = [
 ];
 const KIND: Record<LayerType, string> = {
   camera: 'Camera',
-  screen: 'Screen, tab, window or slides',
+  screen: 'Built-in browser (your pages)',
   screen2: 'Second screen',
   tool: 'Teaching tool',
   text: 'Text',

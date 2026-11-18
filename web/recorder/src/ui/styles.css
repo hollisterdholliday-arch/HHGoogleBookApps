@@ -119,7 +119,7 @@ h1, h2, h3 { margin: 0; }
   position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 28px; overflow: hidden; background: #0d0d10;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--glass-edge);
 }
-.stage canvas { display: block; width: 100%; height: 100%; position: relative; z-index: 1; }
+.stage canvas { display: block; width: 100%; height: 100%; position: relative; z-index: 1; pointer-events: none; }
 .countdown { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(0, 0, 0, 0.35); }
 .countdown span { font-size: 14cqw; font-weight: 850; color: #fff; animation: pop 700ms var(--spring); text-shadow: 0 1cqw 4cqw rgba(0, 0, 0, 0.4); }
 .stage { container-type: inline-size; }
@@ -299,12 +299,40 @@ h1, h2, h3 { margin: 0; }
 .lib-empty { position: relative; z-index: 1; margin: 60px auto; max-width: 440px; padding: 28px; border-radius: 28px; background: var(--glass-panel); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
 .switch:disabled { opacity: 0.4; cursor: default; }
 
+/* ---------- built-in browser ---------- */
+.page-bar { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.page-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.page-tab { flex: none; display: flex; align-items: center; gap: 8px; max-width: 220px; height: 40px; padding: 0 14px 0 6px; border: 0; border-radius: 14px;
+  background: var(--glass-panel); color: var(--on); font-size: 13px; font-weight: 650; box-shadow: inset 0 0 0 1px var(--glass-edge);
+  backdrop-filter: blur(var(--blur, 24px)) saturate(160%); -webkit-backdrop-filter: blur(var(--blur, 24px)) saturate(160%); }
+.page-tab span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-tab i { width: 28px; height: 28px; flex: none; border-radius: 10px; display: grid; place-items: center; font-style: normal; font-weight: 850; background: var(--btn); }
+.page-tab.active { border-radius: 20px; background: var(--prim-cont); color: var(--on-prim-cont); box-shadow: inset 0 0 0 2px var(--primary); }
+.page-tab.active i { background: var(--primary); color: var(--on-primary); }
+.page-address { display: flex; align-items: center; gap: 8px; }
+.page-address input { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 16px; border-radius: 22px; border: 1.5px solid var(--outline-var); background: var(--field-bg); color: var(--on); font-size: 14px; outline: none; }
+.page-address input:focus { border-color: var(--primary); }
+.page-address .icon-btn { font-size: 18px; }
+.page-address .small-btn { height: 44px; border-radius: 22px; white-space: nowrap; }
+.browser-host { transition: left 560ms var(--spring), top 560ms var(--spring), width 560ms var(--spring), height 560ms var(--spring); }
+.browser-host iframe { position: absolute; inset: 0; visibility: hidden; }
+.browser-host iframe.on { visibility: visible; }
+.page-title-input { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; font-weight: 650; padding: 0; outline: none; }
+.page-title-input:focus { box-shadow: 0 1px 0 var(--primary); }
+.page-actions { display: flex; flex: none; }
+.page-actions .icon-btn { width: 32px; height: 32px; }
+.page-actions .icon-btn:disabled { opacity: 0.3; }
+.mini-pages { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.mini-page { flex: none; max-width: 160px; height: 34px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--btn); color: var(--on); font-size: 12px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-page.active { border-radius: 17px; background: var(--primary); color: var(--on-primary); }
+
 /* ---------- content: tools and slides ---------- */
 .tool-host {
   position: absolute; left: 2%; top: 3.6%; width: 72%; height: 92.8%; z-index: 2; border-radius: 2cqw; overflow: hidden;
   background: #fff; isolation: isolate; box-shadow: 0 1cqw 3cqw rgba(0, 0, 0, 0.3);
 }
 .tool-host.behind { z-index: 0; pointer-events: none; }
+.tool-host.under { z-index: 0; }
 .tool-host iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
 .tool-capture {
   position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); height: 44px; padding: 0 20px; border: 0; border-radius: 22px;

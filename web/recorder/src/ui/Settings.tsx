@@ -131,7 +131,7 @@ export function Settings(props: {
               {sw(prefs.noise, () => set('noise', !prefs.noise), 'Noise suppression', 'Removes fans, typing and hallway noise.')}
               {sw(prefs.echo, () => set('echo', !prefs.echo), 'Echo cancellation', 'Stops your speakers from echoing into the mic.')}
               {sw(prefs.agc, () => set('agc', !prefs.agc), 'Auto volume leveling', 'Evens out loud and quiet moments.')}
-              <div className="note">To record sound from a video or app, tick “Share audio” in Chrome’s share picker.</div>
+              <div className="note">Sound from your pages (a video playing, a tool’s audio) is recorded along with your voice.</div>
             </div>
           </>
         )}
@@ -251,7 +251,8 @@ export function Settings(props: {
                 ['Switch to scene 1–9', '1 … 9  or  Ctrl + 1 … 9'],
                 ['Start or stop recording', 'Ctrl + Shift + Enter'],
                 ['Pause or resume', 'Ctrl + Shift + Space'],
-                ['Next or previous slide', '→  /  ←'],
+                ['Switch to page 1–9', 'Alt + 1 … 9  (Option on a Mac)'],
+                ['Next or previous page', 'Alt + ]  /  Alt + ['],
                 ['Scene builder: nudge a layer', 'Arrow keys (Shift = bigger steps)'],
                 ['Scene builder: delete a layer', 'Delete'],
               ].map(([what, keys]) => (
