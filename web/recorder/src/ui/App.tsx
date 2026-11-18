@@ -9,7 +9,7 @@ import { BITRATES, DEFAULT_PREFS, Settings, type Prefs } from './Settings';
 import { Welcome } from './Welcome';
 import { applyAccent } from '../lib/theme';
 import { exportPack, importPack } from '../lib/packs';
-import { cssClip, exampleScene, loadCustom, loadMedia, saveCustom, templates, type CustomScene } from '../engine/custom';
+import { cssClip, loadCustom, loadMedia, saveCustom, templates, type CustomScene } from '../engine/custom';
 import { captionAvailability, installCaptions, type CaptionAvailability } from '../engine/captions';
 import { loadPages, savePages, type Page } from '../lib/pages';
 import { BrowserHost, makePage, PagesPanel, PageToolbar } from './Browser';
@@ -234,12 +234,6 @@ export function App() {
   const visibleScenes = [...(prefs.showBuiltIns ? SCENES.map((x) => ({ id: x.id, name: x.name })) : []), ...customs.map((c) => ({ id: c.id, name: c.name }))];
   const visibleRef = useRef(visibleScenes);
   visibleRef.current = visibleScenes;
-  // Start everyone with one example scene (once; delete it if you like).
-  useEffect(() => {
-    if (store.get('exampleSeeded', false)) return;
-    store.set('exampleSeeded', true);
-    setCustoms((l) => (l.length ? l : [exampleScene(100)]));
-  }, []);
   // If the current scene was hidden, move to the first one you can see.
   useEffect(() => {
     if (!editing && visibleScenes.length && !visibleScenes.some((x) => x.id === sceneRef.current)) setScene(visibleScenes[0].id);
@@ -688,7 +682,7 @@ export function App() {
                 pages={pages}
                 active={activePage}
                 reloads={reloads}
-                behind={!screenBox(scene)}
+                behind={!screenBox(scene) || pages.length === 0}
                 captured={studio.sharing}
                 onCapture={() => void captureBrowser()}
                 style={(() => {
@@ -810,7 +804,7 @@ export function App() {
                   {fields.map(([k, label, hint]) => (
                     <label key={k} className="field">
                       {label}
-                      <input value={text[k]} placeholder={hint} onChange={setField(k)} />
+                      <input value={text[k]} title={hint} onChange={setField(k)} />
                     </label>
                   ))}
                 </div>

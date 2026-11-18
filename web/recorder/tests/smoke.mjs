@@ -314,15 +314,19 @@ try {
     return null;
   });
   check(!!trimmed && trimmed.w === 1920 && trimmed.d > 1 && trimmed.d < saved.d, `trimmed copy plays (${trimmed?.d?.toFixed(1)} s of ${saved.d.toFixed(1)} s)`);
-  // A fresh start shows one example scene, not the ready-made ones.
+  // A fresh start is blank: no scenes, no filled-in text, nothing over the preview.
   const fresh = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await fresh.grantPermissions(['camera', 'microphone']);
   const fp = await fresh.newPage();
   await fp.addInitScript(() => localStorage.setItem('recorder.welcomed', 'true'));
   await fp.goto(`http://localhost:${PORT}/`);
-  await fp.waitForSelector('.scene-card-wrap');
+  await fp.waitForSelector('.new-scene');
+  await fp.waitForTimeout(1500);
   const cards = await fp.$$eval('.strip .scene-card:not(.new-scene)', (els) => els.map((e) => e.textContent));
-  check(cards.length === 1 && cards[0].includes('Example'), `fresh start shows just the example scene (${cards.join(' | ')})`);
+  check(cards.length === 0, `fresh start has no scenes, just New scene (${cards.length} found)`);
+  const fields = await fp.$$eval('input', (els) => els.filter((e) => e.value !== '' && e.type !== 'range' && e.type !== 'color').length);
+  check(fields === 0, `fresh start has no pre-filled text (${fields} filled)`);
+  check(await fp.isHidden('.browser-host:not(.behind)'), 'no empty browser panel covers the preview');
   await fp.screenshot({ path: `${OUT}/fresh.png` });
   await fresh.close();
 
