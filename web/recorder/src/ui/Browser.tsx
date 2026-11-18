@@ -40,7 +40,7 @@ export function PageToolbar(props: {
         </button>
         <input
           aria-label="Web address"
-          placeholder={current ? current.url : 'Type or paste a web address, then press Enter'}
+          placeholder={current ? current.url : 'Web address'}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

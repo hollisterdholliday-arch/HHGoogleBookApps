@@ -57,11 +57,11 @@ export function Welcome(props: {
               <p className="w-lead">Used on title cards and name bars. You can change it any time.</p>
               <label className="field">
                 Your name
-                <input autoFocus placeholder="Optional" value={name} onChange={(e) => setName(e.target.value)} />
+                <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="field">
                 Class or subject
-                <input placeholder="Optional" value={role} onChange={(e) => setRole(e.target.value)} />
+                <input value={role} onChange={(e) => setRole(e.target.value)} />
               </label>
             </>
           )}

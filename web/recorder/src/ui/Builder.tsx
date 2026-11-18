@@ -305,7 +305,7 @@ export function Builder(props: {
               <h2 className="h-section">Scene</h2>
               <label className="field">
                 Name
-                <input value={scene.name} placeholder="Name your scene" onChange={(e) => setScene({ ...scene, name: e.target.value })} />
+                <input value={scene.name} onChange={(e) => setScene({ ...scene, name: e.target.value })} />
               </label>
               <div className="sub">Background</div>
               <div className="bg-grid">
@@ -364,7 +364,7 @@ export function Builder(props: {
                 <>
                   <label className="field">
                     Text
-                    <input autoFocus value={layer.text ?? ''} placeholder="Type your text" onChange={(e) => upd({ text: e.target.value })} />
+                    <input autoFocus value={layer.text ?? ''} onChange={(e) => upd({ text: e.target.value })} />
                   </label>
                   <div className="chip-row">
                     {['title', 'name', 'role', 'date'].map((k) => (

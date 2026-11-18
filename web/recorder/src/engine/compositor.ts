@@ -360,20 +360,11 @@ export class Compositor {
       ctx.drawImage(f.img, r.x, r.y, r.w, r.h);
       return;
     }
-    const g = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
-    g.addColorStop(0, '#1e2140');
-    g.addColorStop(1, '#2d3166');
-    ctx.fillStyle = g;
+    // Nothing to show yet: a plain panel, no placeholder text in the video.
+    void title;
+    void hint;
+    ctx.fillStyle = '#16171c';
     ctx.fillRect(b.x, b.y, b.w, b.h);
-    const k = b.w / W;
-    ctx.fillStyle = '#dee0ff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `800 ${Math.round(72 * k)}px ${FONT}`;
-    ctx.fillText(title, b.x + b.w / 2, b.y + b.h / 2 - 34 * k);
-    ctx.fillStyle = 'rgba(222,224,255,0.75)';
-    ctx.font = `500 ${Math.round(34 * k)}px ${FONT}`;
-    ctx.fillText(hint, b.x + b.w / 2, b.y + b.h / 2 + 44 * k);
   }
 
   /** Camera image (with effects), cropped to cover box `b`. */
